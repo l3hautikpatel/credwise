@@ -1,11 +1,14 @@
 package com.team1_5.credwise.controller;
 
 import com.team1_5.credwise.dto.RegisterRequest;
+import com.team1_5.credwise.dto.LoginRequest;
+import com.team1_5.credwise.dto.LoginResponse;
 import com.team1_5.credwise.service.AuthService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
 
 @RestController
 @RequestMapping("/api/auth")
@@ -27,4 +30,13 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(e.getMessage());
         }
     }
+
+
+    @PostMapping("/login")
+    public ResponseEntity<LoginResponse> loginUser(@Valid @RequestBody LoginRequest loginRequest) {
+        LoginResponse response = authService.loginUser(loginRequest);
+        return ResponseEntity.ok(response);
+    }
+
+
 }

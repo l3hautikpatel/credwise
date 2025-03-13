@@ -1,28 +1,32 @@
 package com.team1_5.credwise.dto;
 
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Past;
-import java.time.LocalDate;
+import jakarta.validation.constraints.*;
 
 public class RegisterRequest {
-
     @NotBlank(message = "First name is required")
+    @Size(min = 2, max = 50, message = "First name must be between 2 and 50 characters")
     private String firstName;
 
     @NotBlank(message = "Last name is required")
+    @Size(min = 2, max = 50, message = "Last name must be between 2 and 50 characters")
     private String lastName;
 
-    @Email(message = "Invalid email format")
     @NotBlank(message = "Email is required")
+    @Email(message = "Invalid email format")
     private String email;
 
-    @Past(message = "Date of birth must be in the past")
-    @NotNull(message = "Date of birth is required")
-    private LocalDate dateOfBirth;
+    @NotBlank(message = "Phone number is required")
+    @Pattern(
+            regexp = "^\\+?[1-9]\\d{1,14}$",
+            message = "Invalid phone number format"
+    )
+    private String phoneNumber;
 
     @NotBlank(message = "Password is required")
+    @Pattern(
+            regexp = "^(?=.*[A-Za-z])(?=.*\\d)(?=.*[@$!%*#?&])[A-Za-z\\d@$!%*#?&]{8,}$",
+            message = "Password must be at least 8 characters long, contain a letter, a number, and a special character"
+    )
     private String password;
 
     // Getters
@@ -38,8 +42,8 @@ public class RegisterRequest {
         return email;
     }
 
-    public LocalDate getDateOfBirth() {
-        return dateOfBirth;
+    public String getPhoneNumber() {
+        return phoneNumber;
     }
 
     public String getPassword() {
@@ -59,8 +63,8 @@ public class RegisterRequest {
         this.email = email;
     }
 
-    public void setDateOfBirth(LocalDate dateOfBirth) {
-        this.dateOfBirth = dateOfBirth;
+    public void setPhoneNumber(String phoneNumber) {
+        this.phoneNumber = phoneNumber;
     }
 
     public void setPassword(String password) {
