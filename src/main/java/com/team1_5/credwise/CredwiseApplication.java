@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 public class CredwiseApplication {
     public static void main(String[] args) {
         SpringApplication.run(CredwiseApplication.class, args);
+
     }
 }
 

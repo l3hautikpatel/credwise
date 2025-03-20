@@ -1,0 +1,24 @@
+2025-03-20 15:44:44.451007-04:00 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "ALTER TABLE USERS [*]AUTO_INCREMENT = 100000"; expected "., ADD, SET, RENAME, DROP, ALTER"; SQL statement:
+ALTER TABLE USERS AUTO_INCREMENT = 100000 [42001-232]
+2025-03-20 15:44:55.780463-04:00 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "ALTER TABLE USERS [*]ID = 100000"; expected "., ADD, SET, RENAME, DROP, ALTER"; SQL statement:
+ALTER TABLE USERS ID = 100000 [42001-232]
+2025-03-20 15:44:56.515068-04:00 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "ALTER TABLE USERS [*]ID = 100000"; expected "., ADD, SET, RENAME, DROP, ALTER"; SQL statement:
+ALTER TABLE USERS ID = 100000 [42001-232]
+2025-03-20 15:44:56.679449-04:00 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "ALTER TABLE USERS [*]ID = 100000"; expected "., ADD, SET, RENAME, DROP, ALTER"; SQL statement:
+ALTER TABLE USERS ID = 100000 [42001-232]
+2025-03-20 15:44:56.844384-04:00 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "ALTER TABLE USERS [*]ID = 100000"; expected "., ADD, SET, RENAME, DROP, ALTER"; SQL statement:
+ALTER TABLE USERS ID = 100000 [42001-232]
+2025-03-20 15:44:56.994359-04:00 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "ALTER TABLE USERS [*]ID = 100000"; expected "., ADD, SET, RENAME, DROP, ALTER"; SQL statement:
+ALTER TABLE USERS ID = 100000 [42001-232]
+2025-03-20 15:45:05.902488-04:00 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "ALTER TABLE USERS [*]IDUSERS  = 100000"; expected "., ADD, SET, RENAME, DROP, ALTER"; SQL statement:
+ALTER TABLE USERS IDUSERS  = 100000 [42001-232]
+2025-03-20 15:49:14.710740-04:00 jdbc[14]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "ALTER TABLE USERS  [*]AUTO_INCREMENT = 100106"; expected "., ADD, SET, RENAME, DROP, ALTER"; SQL statement:
+ALTER TABLE USERS  AUTO_INCREMENT = 100106 [42001-232]
