@@ -11,33 +11,41 @@ import java.util.Date;
 
 @Component
 public class JwtUtil {
-    // Use a hardcoded secret if no property is set
-    @Value("${jwt.secret:defaultSecretKeyThatIsSuperLongAndSecure123456789}")
-    private String jwtSecret;
+    private final String jwtSecret;
+    private final long jwtExpiration;
 
-    @Value("${jwt.expiration:86400000}")
-    private long jwtExpiration;
+    public JwtUtil(
+            @Value("${jwt.secret}") String jwtSecret,
+            @Value("${jwt.expiration}") long jwtExpiration
+    ) {
+        this.jwtSecret = jwtSecret;
+        this.jwtExpiration = jwtExpiration;
+    }
 
     private Key getSigningKey() {
         return Keys.hmacShaKeyFor(jwtSecret.getBytes());
     }
 
-    public String generateToken(String email) {
+    // Generate token with user ID
+    public String generateToken(Long userId) {
         return Jwts.builder()
-                .setSubject(email)
+                .setSubject(userId.toString())  // Convert Long to String
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + jwtExpiration))
                 .signWith(getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
     }
 
-    public String extractEmail(String token) {
-        return Jwts.parserBuilder()
+    // Extract user ID from token
+    public Long extractUserId(String token) {
+        String userIdString = Jwts.parserBuilder()
                 .setSigningKey(getSigningKey())
                 .build()
                 .parseClaimsJws(token)
                 .getBody()
                 .getSubject();
+
+        return Long.parseLong(userIdString);
     }
 
     public boolean validateToken(String token) {

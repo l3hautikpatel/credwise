@@ -74,6 +74,7 @@ public class AuthService {
         }
     }
 
+
     public LoginResponse loginUser(LoginRequest loginRequest) {
         logger.info("Attempting to login user: {}", loginRequest.getEmail());
 
@@ -90,8 +91,8 @@ public class AuthService {
             throw new BadCredentialsException("Invalid email or password");
         }
 
-        // Generate JWT token
-        String token = jwtUtil.generateToken(user.getEmail());
+        // Generate JWT token with user ID
+        String token = jwtUtil.generateToken(user.getId());
 
         // Create login response
         LoginResponse.UserDTO userDTO = new LoginResponse.UserDTO(
@@ -106,8 +107,8 @@ public class AuthService {
         logger.info("User logged in successfully: {}", loginRequest.getEmail());
         return response;
     }
-
 }
+
 
 // Custom exception
 class UserAlreadyExistsException extends RuntimeException {
