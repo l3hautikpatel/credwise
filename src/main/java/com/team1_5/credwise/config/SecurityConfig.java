@@ -43,6 +43,12 @@ public class SecurityConfig {
                         // Optional: Add more specific public endpoints
                         .requestMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
 
+                        .requestMatchers(
+                                "/v3/api-docs/**",
+                                "/swagger-ui/**",
+                                "/swagger-ui.html"
+                        ).permitAll()
+
                         // All other requests require authentication (uncomment if needed)
                         .anyRequest().permitAll()  // Changed from .authenticated()
                 )
@@ -73,4 +79,8 @@ public class SecurityConfig {
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder(12);
     }
+
+
+
+
 }

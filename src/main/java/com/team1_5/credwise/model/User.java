@@ -1,9 +1,8 @@
 package com.team1_5.credwise.model;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Entity
 @Table(name = "users")
@@ -12,57 +11,45 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @NotBlank
-    @Column(name = "first_name")
-    private String firstName;
-
-    @NotBlank
-    @Column(name = "last_name")
-    private String lastName;
-
-    @Email
-    @NotBlank
-    @Column(unique = true)
+    @Column(unique = true, nullable = false)
     private String email;
 
-    @NotBlank
-    @Column(name = "phone_number", unique = true)
+    @Column(unique = true, nullable = false)
     private String phoneNumber;
 
-    @NotBlank
+    private String firstName;
+    private String lastName;
+
+    @Column(nullable = false)
     private String password;
 
-    @Column(name = "created_at")
+    private Integer creditScore;
+
+    @Enumerated(EnumType.STRING)
+    private UserStatus status;
+
+    @Column(nullable = false)
     private LocalDateTime createdAt;
 
-    // Constructors
-    public User() {
-        this.createdAt = LocalDateTime.now();
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL)
+    private List<LoanApplication> loanApplications;
+
+    // Enum for user status
+    public enum UserStatus {
+        ACTIVE,
+        INACTIVE,
+        SUSPENDED,
+        PENDING_VERIFICATION
     }
 
-    // Getters and Setters
+    // Constructors, getters, and setters
+
     public Long getId() {
         return id;
     }
 
     public void setId(Long id) {
         this.id = id;
-    }
-
-    public String getFirstName() {
-        return firstName;
-    }
-
-    public void setFirstName(String firstName) {
-        this.firstName = firstName;
-    }
-
-    public String getLastName() {
-        return lastName;
-    }
-
-    public void setLastName(String lastName) {
-        this.lastName = lastName;
     }
 
     public String getEmail() {
@@ -81,6 +68,22 @@ public class User {
         this.phoneNumber = phoneNumber;
     }
 
+    public String getFirstName() {
+        return firstName;
+    }
+
+    public void setFirstName(String firstName) {
+        this.firstName = firstName;
+    }
+
+    public String getLastName() {
+        return lastName;
+    }
+
+    public void setLastName(String lastName) {
+        this.lastName = lastName;
+    }
+
     public String getPassword() {
         return password;
     }
@@ -89,7 +92,35 @@ public class User {
         this.password = password;
     }
 
+    public Integer getCreditScore() {
+        return creditScore;
+    }
+
+    public void setCreditScore(Integer creditScore) {
+        this.creditScore = creditScore;
+    }
+
+    public UserStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(UserStatus status) {
+        this.status = status;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public List<LoanApplication> getLoanApplications() {
+        return loanApplications;
+    }
+
+    public void setLoanApplications(List<LoanApplication> loanApplications) {
+        this.loanApplications = loanApplications;
     }
 }
