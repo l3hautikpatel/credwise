@@ -67,4 +67,8 @@ public class FinancialInfo {
     public void setDebts(List<Debt> debts) { this.debts = debts; }
     public List<Asset> getAssets() { return assets; }
     public void setAssets(List<Asset> assets) { this.assets = assets; }
+
+
+
 }
+

@@ -1,6 +1,8 @@
 package com.team1_5.credwise.model;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.NotBlank;
+
 import java.math.BigDecimal;
 
 @Entity
@@ -15,6 +17,7 @@ public class Debt {
     private FinancialInfo financialInfo;
 
     @Column(name = "debt_type", nullable = false)
+    @NotBlank(message = "Debt type is required")
     private String debtType;
 
     @Column(nullable = false)
