@@ -9,6 +9,7 @@ import com.team1_5.credwise.repository.*;
 import com.team1_5.credwise.util.CreditScoreValidator;
 import com.team1_5.credwise.util.DummyLoanResultGenerator;
 import com.team1_5.credwise.util.LoanResultCalculator;
+
 //import jakarta.transaction.Transactional;
 import com.team1_5.credwise.util.LoanResultGenerator;
 import org.springframework.stereotype.Service;
@@ -41,6 +42,7 @@ public class LoanApplicationService {
     private final LoanResultGenerator loanResultGenerator;
     private final DummyLoanResultGenerator resultGenerator;
     private final FinancialSummaryRepository financialSummaryRepo;
+    private final EmploymentHistoryRepository employmentHistoryRepo;
 
 
 
@@ -53,7 +55,11 @@ public class LoanApplicationService {
                                   CreditScoreValidator creditValidator,
                                   LoanResultCalculator resultCalculator,
                                   UserRepository userRepo, PersonalInfoRepository personalInfoRepo,
-                                  LoanApplicationResultRepository loanApplicationResultRepo, LoanResultGenerator loanResultGenerator, DummyLoanResultGenerator resultGenerator, FinancialSummaryRepository financialSummaryRepo) {
+                                  LoanApplicationResultRepository loanApplicationResultRepo,
+                                  LoanResultGenerator loanResultGenerator,
+                                  DummyLoanResultGenerator resultGenerator,
+                                  FinancialSummaryRepository financialSummaryRepo,
+                                  EmploymentHistoryRepository employmentHistoryRepo) {
         this.loanAppRepo = loanAppRepo;
         this.addressRepo = addressRepo;
         this.financialInfoRepo = financialInfoRepo;
@@ -68,6 +74,7 @@ public class LoanApplicationService {
         this.loanResultGenerator = loanResultGenerator;
         this.resultGenerator = resultGenerator;
         this.financialSummaryRepo = financialSummaryRepo;
+        this.employmentHistoryRepo = employmentHistoryRepo;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -164,20 +171,44 @@ public class LoanApplicationService {
 
     private void saveFinancialInformation(LoanApplicationRequest request, LoanApplication application) {
         FinancialInfo financialInfo = createFinancialInfo(request.getFinancialInfo(), application);
+        saveEmploymentHistory(request.getFinancialInfo(), financialInfo);  // New line
         saveDebtsAndAssets(request.getFinancialInfo(), financialInfo);
+    }
+
+    private void saveEmploymentHistory(LoanApplicationRequest.FinancialInfo financialInfoDto,
+                                       FinancialInfo financialInfo) {
+        List<EmploymentHistory> employmentHistory = financialInfoDto.getEmployment().stream()
+                .map(empDto -> {
+                    EmploymentHistory history = new EmploymentHistory();
+                    history.setFinancialInfo(financialInfo);
+                    history.setEmployerName(empDto.getEmployerName());
+                    history.setPosition(empDto.getPosition());
+                    history.setEmploymentType(empDto.getEmploymentType());
+                    history.setStartDate(empDto.getStartDate());
+                    history.setEndDate(empDto.getEndDate());
+                    history.setDurationMonths(empDto.getDurationMonths());
+                    return history;
+                })
+                .collect(Collectors.toList());
+
+        employmentHistoryRepo.saveAll(employmentHistory);
     }
 
     private FinancialInfo createFinancialInfo(LoanApplicationRequest.FinancialInfo financialInfoDto,
                                               LoanApplication application) {
         FinancialInfo financialInfo = new FinancialInfo();
         financialInfo.setLoanApplication(application);
-        financialInfo.setEmployerName(financialInfoDto.getEmployment().getEmployerName());
-        financialInfo.setPosition(financialInfoDto.getEmployment().getPosition());
-        financialInfo.setEmploymentType(financialInfoDto.getEmployment().getEmploymentType());
-        financialInfo.setEmploymentDuration(financialInfoDto.getEmployment().getEmploymentDuration());
+
+        // Remove these lines:
+        // financialInfo.setEmployerName(financialInfoDto.getEmployment().getEmployerName());
+        // financialInfo.setPosition(financialInfoDto.getEmployment().getPosition());
+        // financialInfo.setEmploymentType(financialInfoDto.getEmployment().getEmploymentType());
+        // financialInfo.setEmploymentDuration(financialInfoDto.getEmployment().getEmploymentDuration());
+
         financialInfo.setMonthlyIncome(financialInfoDto.getMonthlyIncome());
         financialInfo.setCreditScore(financialInfoDto.getCreditScore());
         financialInfo.setMonthlyExpenses(financialInfoDto.getMonthlyExpenses());
+
         return financialInfoRepo.save(financialInfo);
     }
 

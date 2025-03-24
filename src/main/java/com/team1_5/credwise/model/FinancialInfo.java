@@ -15,17 +15,20 @@ public class FinancialInfo {
     @JoinColumn(name = "loan_application_id", nullable = false)
     private LoanApplication loanApplication;
 
-    @Column(name = "employer_name", nullable = false)
-    private String employerName;
+//    @Column(name = "employer_name", nullable = false)
+//    private String employerName;
+//
+//    @Column(nullable = false)
+//    private String position;
+//
+//    @Column(name = "employment_type", nullable = false)
+//    private String employmentType;
+//
+//    @Column(name = "employment_duration", nullable = false)
+//    private Integer employmentDuration;
 
-    @Column(nullable = false)
-    private String position;
-
-    @Column(name = "employment_type", nullable = false)
-    private String employmentType;
-
-    @Column(name = "employment_duration", nullable = false)
-    private Integer employmentDuration;
+    @OneToMany(mappedBy = "financialInfo", cascade = CascadeType.ALL)
+    private List<EmploymentHistory> employmentHistory;
 
     @Column(name = "monthly_income", nullable = false)
     private BigDecimal monthlyIncome;
@@ -49,15 +52,19 @@ public class FinancialInfo {
     public void setId(Long id) { this.id = id; }
     public LoanApplication getLoanApplication() { return loanApplication; }
     public void setLoanApplication(LoanApplication loanApplication) { this.loanApplication = loanApplication; }
-    public String getEmployerName() { return employerName; }
-    public void setEmployerName(String employerName) { this.employerName = employerName; }
-    public String getPosition() { return position; }
-    public void setPosition(String position) { this.position = position; }
-    public String getEmploymentType() { return employmentType; }
-    public void setEmploymentType(String employmentType) { this.employmentType = employmentType; }
-    public Integer getEmploymentDuration() { return employmentDuration; }
-    public void setEmploymentDuration(Integer employmentDuration) { this.employmentDuration = employmentDuration; }
-    public BigDecimal getMonthlyIncome() { return monthlyIncome; }
+
+//    public String getEmployerName() { return employerName; }
+//    public void setEmployerName(String employerName) { this.employerName = employerName; }
+//    public String getPosition() { return position; }
+//    public void setPosition(String position) { this.position = position; }
+//    public String getEmploymentType() { return employmentType; }
+//    public void setEmploymentType(String employmentType) { this.employmentType = employmentType; }
+//    public Integer getEmploymentDuration() { return employmentDuration; }
+//    public void setEmploymentDuration(Integer employmentDuration) { this.employmentDuration = employmentDuration; }
+//    public BigDecimal getMonthlyIncome() { return monthlyIncome; }
+
+    public List<EmploymentHistory> getEmploymentHistory() { return employmentHistory; }
+    public void setEmploymentHistory(List<EmploymentHistory> employmentHistory) {this.employmentHistory = employmentHistory; }
     public void setMonthlyIncome(BigDecimal monthlyIncome) { this.monthlyIncome = monthlyIncome; }
     public Integer getCreditScore() { return creditScore; }
     public void setCreditScore(Integer creditScore) { this.creditScore = creditScore; }

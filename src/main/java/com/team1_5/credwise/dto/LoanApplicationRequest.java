@@ -3,6 +3,7 @@ package com.team1_5.credwise.dto;
 import jakarta.validation.constraints.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 
 public class LoanApplicationRequest {
@@ -206,19 +207,77 @@ public class LoanApplicationRequest {
         }
     }
 
-    public static class FinancialInfo {
-        private Employment employment;
+//    public static class FinancialInfo {
+//        private Employment employment;
+//        private BigDecimal monthlyIncome;
+//        private Integer creditScore;
+//        private BigDecimal monthlyExpenses;
+//        private List<Debt> debts;
+//        private List<Asset> assets;
+//
+//        public Employment getEmployment() {
+//            return employment;
+//        }
+//
+//        public void setEmployment(Employment employment) {
+//            this.employment = employment;
+//        }
+//
+//        public BigDecimal getMonthlyIncome() {
+//            return monthlyIncome;
+//        }
+//
+//        public void setMonthlyIncome(BigDecimal monthlyIncome) {
+//            this.monthlyIncome = monthlyIncome;
+//        }
+//
+//        public Integer getCreditScore() {
+//            return creditScore;
+//        }
+//
+//        public void setCreditScore(Integer creditScore) {
+//            this.creditScore = creditScore;
+//        }
+//
+//        public BigDecimal getMonthlyExpenses() {
+//            return monthlyExpenses;
+//        }
+//
+//        public void setMonthlyExpenses(BigDecimal monthlyExpenses) {
+//            this.monthlyExpenses = monthlyExpenses;
+//        }
+//
+//        public List<Debt> getDebts() {
+//            return debts;
+//        }
+//
+//        public void setDebts(List<Debt> debts) {
+//            this.debts = debts;
+//        }
+//
+//        public List<Asset> getAssets() {
+//            return assets;
+//        }
+//
+//        public void setAssets(List<Asset> assets) {
+//            this.assets = assets;
+//        }
+//    }
+
+    public class FinancialInfo {
+        private List<EmploymentDto> employment;
         private BigDecimal monthlyIncome;
         private Integer creditScore;
         private BigDecimal monthlyExpenses;
         private List<Debt> debts;
         private List<Asset> assets;
 
-        public Employment getEmployment() {
+        // Getters and Setters
+        public List<EmploymentDto> getEmployment() {
             return employment;
         }
 
-        public void setEmployment(Employment employment) {
+        public void setEmployment(List<EmploymentDto> employment) {
             this.employment = employment;
         }
 
@@ -260,6 +319,65 @@ public class LoanApplicationRequest {
 
         public void setAssets(List<Asset> assets) {
             this.assets = assets;
+        }
+
+        // Nested EmploymentDto class with Getters and Setters
+        public static class EmploymentDto {
+            private String employerName;
+            private String position;
+            private String employmentType;
+            private LocalDate startDate;
+            private LocalDate endDate;
+            private Integer durationMonths;
+
+            // Getters and Setters
+            public String getEmployerName() {
+                return employerName;
+            }
+
+            public void setEmployerName(String employerName) {
+                this.employerName = employerName;
+            }
+
+            public String getPosition() {
+                return position;
+            }
+
+            public void setPosition(String position) {
+                this.position = position;
+            }
+
+            public String getEmploymentType() {
+                return employmentType;
+            }
+
+            public void setEmploymentType(String employmentType) {
+                this.employmentType = employmentType;
+            }
+
+            public LocalDate getStartDate() {
+                return startDate;
+            }
+
+            public void setStartDate(LocalDate startDate) {
+                this.startDate = startDate;
+            }
+
+            public LocalDate getEndDate() {
+                return endDate;
+            }
+
+            public void setEndDate(LocalDate endDate) {
+                this.endDate = endDate;
+            }
+
+            public Integer getDurationMonths() {
+                return durationMonths;
+            }
+
+            public void setDurationMonths(Integer durationMonths) {
+                this.durationMonths = durationMonths;
+            }
         }
     }
 
