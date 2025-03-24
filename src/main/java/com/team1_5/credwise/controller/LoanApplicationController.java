@@ -4,6 +4,7 @@ import com.team1_5.credwise.dto.LoanApplicationRequest;
 import com.team1_5.credwise.dto.LoanApplicationResponse;
 import com.team1_5.credwise.service.LoanApplicationService;
 import com.team1_5.credwise.util.JwtUtil;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,7 +23,7 @@ public class LoanApplicationController {
     @PostMapping
     public ResponseEntity<LoanApplicationResponse> submitApplication(
             @RequestHeader("Authorization") String token,
-            @RequestBody LoanApplicationRequest request) {
+            @Valid @RequestBody LoanApplicationRequest request) {
 
         Long userId = jwtUtil.extractUserId(token.replace("Bearer ", ""));
         LoanApplicationResponse response = loanService.processLoanApplication(userId, request);

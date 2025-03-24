@@ -48,4 +48,6 @@ public class FinancialSummary {
     public String getScoreRange() { return scoreRange; }
     public void setScoreRange(String scoreRange) { this.scoreRange = scoreRange; }
     public LocalDateTime getLastUpdated() { return lastUpdated; }
+    public void setLastUpdated(LocalDateTime lastUpdated) { this.lastUpdated = lastUpdated; }
+
 }

@@ -1,5 +1,7 @@
 package com.team1_5.credwise.dto;
 
+import jakarta.validation.constraints.*;
+
 import java.math.BigDecimal;
 import java.util.List;
 
@@ -83,10 +85,18 @@ public class LoanApplicationRequest {
     }
 
     public static class PersonalInfo {
+        @NotBlank
+        @Size(min = 2, max = 50)
         private String firstName;
-        private String lastName;
+
+        @Email
         private String email;
+
+        @Pattern(regexp = "^\\+?[1-9]\\d{1,14}$")
         private String phoneNumber;
+        private String lastName;
+//        private String email;
+//        private String phoneNumber;
         private String dateOfBirth;
         private Address address;
 
@@ -293,9 +303,13 @@ public class LoanApplicationRequest {
     }
 
     public static class Debt {
+        @NotBlank(message = "Debt type is required")
         private String debtType;
-        private String lender;
+
+        @Positive(message = "Outstanding amount must be positive")
         private BigDecimal outstandingAmount;
+        private String lender;
+//        private BigDecimal outstandingAmount;
         private BigDecimal monthlyPayment;
         private BigDecimal interestRate;
         private Integer remainingTerm;
