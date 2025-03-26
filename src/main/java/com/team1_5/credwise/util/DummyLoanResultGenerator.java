@@ -9,6 +9,10 @@ import java.math.BigDecimal;
 @Component
 public class DummyLoanResultGenerator {
 
+
+
+
+
     public LoanResultDTO generateDummyResult() {
         return new LoanResultDTO(
                 85,                         // eligibilityScore (0-100)
