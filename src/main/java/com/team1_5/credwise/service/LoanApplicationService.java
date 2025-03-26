@@ -99,7 +99,7 @@ public class LoanApplicationService {
             LoanApplication application = saveLoanApplication(user, request);
             LoanResultDTO result = resultGenerator.generateDummyResult();
 
-            saveFinancialSummary(user, result);
+            saveFinancialSummary(user, request);
             saveApplicationResult(application, result);
 
             return new LoanApplicationResponse(
@@ -273,15 +273,23 @@ public class LoanApplicationService {
         }
     }
 
-    private void saveFinancialSummary(User user, LoanResultDTO result) {
+    private void saveFinancialSummary(User user, LoanApplicationRequest request) {
         FinancialSummary summary = new FinancialSummary();
         summary.setUser(user);
-        summary.setCreditScore(800); // Dummy credit score
-        summary.setScoreRange(result.scoreRange());
-        summary.setMonthlyIncome(new BigDecimal("5000.00"));
-        summary.setMonthlyExpenses(new BigDecimal("3000.00"));
+        summary.setCreditScore(request.getFinancialInfo().getCreditScore()); // Use actual credit score
+        summary.setScoreRange(calculateScoreRange(request.getFinancialInfo().getCreditScore())); // Add a method to calculate score range
+        summary.setMonthlyIncome(request.getFinancialInfo().getMonthlyIncome()); // Use actual monthly income
+        summary.setMonthlyExpenses(request.getFinancialInfo().getMonthlyExpenses()); // Use actual monthly expenses
         summary.setLastUpdated(LocalDateTime.now());
         financialSummaryRepo.save(summary);
+    }
+
+    private String calculateScoreRange(Integer creditScore) {
+        if (creditScore >= 750 && creditScore <= 850) return "Excellent (750-850)";
+        if (creditScore >= 700 && creditScore < 750) return "Good (700-749)";
+        if (creditScore >= 650 && creditScore < 700) return "Fair (650-699)";
+        if (creditScore >= 600 && creditScore < 650) return "Poor (600-649)";
+        return "Very Poor (Below 600)";
     }
 
     private void saveApplicationResult(LoanApplication application, LoanResultDTO result) {

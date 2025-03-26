@@ -37,6 +37,8 @@ public class SecurityConfig {
                         // Permit all authentication-related endpoints
                         .requestMatchers("/api/auth/**").permitAll()
 
+//                        .requestMatchers("/api/financial-summary").authenticated()
+
                         // Permit public endpoints
                         .requestMatchers("/public/**").permitAll()
 
