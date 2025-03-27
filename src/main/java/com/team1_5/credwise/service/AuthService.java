@@ -96,8 +96,8 @@ public class AuthService {
 
         // Create login response
         LoginResponse.UserDTO userDTO = new LoginResponse.UserDTO(
-                user.getId(),
-                user.getEmail(),
+//                user.getId(),
+//                user.getEmail(),
                 user.getFirstName(),
                 user.getLastName()
         );
