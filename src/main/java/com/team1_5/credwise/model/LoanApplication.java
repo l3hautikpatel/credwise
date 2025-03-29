@@ -33,8 +33,8 @@ public class LoanApplication {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    @Column(name = "credit_score")
-    private Double creditScore;
+//    @Column(name = "credit_score")
+//    private Double creditScore;
 
 
     // Add status field to constructor
@@ -76,10 +76,13 @@ public class LoanApplication {
 
     public LocalDateTime getCreatedAt() { return createdAt; }
 
-    public void setCreditScore(Double creditScore) {
-        this.creditScore = creditScore;
-    }
-    public Double getCreditScore() { return creditScore; }
+
+
+
+//    public void setCreditScore(Double creditScore) {
+//        this.creditScore = creditScore;
+//    }
+//    public Double getCreditScore() { return creditScore; }
 
 
 }

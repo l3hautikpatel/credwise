@@ -2,6 +2,8 @@ package com.team1_5.credwise.model;
 
 import jakarta.persistence.*;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Entity
@@ -19,16 +21,46 @@ public class FinancialInfo {
     @OneToMany(mappedBy = "financialInfo", cascade = CascadeType.ALL)
     private List<Asset> assets;
 
+    @ManyToOne
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+
+
     private BigDecimal monthlyIncome;
     private BigDecimal monthlyExpenses;
     private BigDecimal estimatedDebts;
     private Integer creditScore;
+    @Column(name = "system_credit_score", nullable = true) // Allow null for system-generated score
+    private Integer systemCreditScore;
+
     private BigDecimal currentCreditLimit;
     private BigDecimal creditTotalUsage;
+    @Column(name = "credit_utilization")
+    private BigDecimal creditUtilization;
 
     @OneToOne
     @JoinColumn(name = "loan_application_id")
     private LoanApplication loanApplication;
+
+    @Column(name = "total_debts")
+    private BigDecimal totalDebts;
+
+    @Column(name = "debt_to_income_ratio")
+    private BigDecimal debtToIncomeRatio;
+
+    @Column(name = "total_assets")
+    private BigDecimal totalAssets;
+
+
+    @Column(name = "last_updated", nullable = false)
+    private LocalDateTime lastUpdated;
+
+
+
+    public FinancialInfo() {
+        this.lastUpdated = LocalDateTime.now();
+    }
+
 
     // Getters and setters for FinancialInfo fields
 
@@ -63,6 +95,9 @@ public class FinancialInfo {
     public void setAssets(List<Asset> assets) {
         this.assets = assets;
     }
+
+    public User getUser() { return user; }
+    public void setUser(User user) { this.user = user; }
 
     public BigDecimal getMonthlyIncome() {
         return monthlyIncome;
@@ -119,4 +154,58 @@ public class FinancialInfo {
     public void setLoanApplication(LoanApplication loanApplication) {
         this.loanApplication = loanApplication;
     }
+
+
+    public Integer getSystemCreditScore() { return systemCreditScore; }
+    public void setSystemCreditScore(Integer systemCreditScore) { this.systemCreditScore = systemCreditScore; }
+
+
+    private void calculateCreditUtilization() {
+        // Auto-calculate credit utilization
+        if (currentCreditLimit.compareTo(BigDecimal.ZERO) != 0) {
+            this.creditUtilization = creditTotalUsage
+                    .divide(currentCreditLimit, 4, RoundingMode.HALF_UP)
+                    .multiply(BigDecimal.valueOf(100));
+        }
+    }
+
+    public void setCreditUtilization(BigDecimal creditUtilization) {
+        this.creditUtilization = creditUtilization;
+    }
+
+    public LocalDateTime getLastUpdated() { return lastUpdated; }
+    public void setLastUpdated(LocalDateTime lastUpdated) { this.lastUpdated = lastUpdated; }
+
+
+    public BigDecimal getTotalDebts() {
+        return totalDebts;
+    }
+
+    public void setTotalDebts(BigDecimal totalDebts) {
+        this.totalDebts = totalDebts;
+    }
+
+    public BigDecimal getDebtToIncomeRatio() {
+        return debtToIncomeRatio;
+    }
+
+    public void setDebtToIncomeRatio(BigDecimal debtToIncomeRatio) {
+        this.debtToIncomeRatio = debtToIncomeRatio;
+    }
+
+    public BigDecimal getTotalAssets() {
+        return totalAssets;
+    }
+
+    public void setTotalAssets(BigDecimal totalAssets) {
+        this.totalAssets = totalAssets;
+    }
+
+
+    public BigDecimal getCreditUtilization() {
+        return creditUtilization;
+    }
+
+
 }
+

@@ -14,9 +14,8 @@ public class FinancialSummaryResponse {
         private LocalDateTime lastUpdated;
 
         // Constructor
-        public CreditScoreDetails(Integer score, String range, LocalDateTime lastUpdated) {
+        public CreditScoreDetails(Integer score, LocalDateTime lastUpdated) {
             this.score = score;
-            this.range = range;
             this.lastUpdated = lastUpdated;
         }
 
@@ -27,10 +26,10 @@ public class FinancialSummaryResponse {
     }
 
     // Constructor
-    public FinancialSummaryResponse(BigDecimal monthlyIncome, BigDecimal monthlyExpenses, Integer score, String range, LocalDateTime lastUpdated) {
+    public FinancialSummaryResponse(BigDecimal monthlyIncome, BigDecimal monthlyExpenses, Integer score,  LocalDateTime lastUpdated) {
         this.monthlyIncome = monthlyIncome;
         this.monthlyExpenses = monthlyExpenses;
-        this.creditScore = new CreditScoreDetails(score, range, lastUpdated);
+        this.creditScore = new CreditScoreDetails(score, lastUpdated);
     }
 
     // Getters

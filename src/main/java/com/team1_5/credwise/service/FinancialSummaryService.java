@@ -29,7 +29,7 @@ public class FinancialSummaryService {
                 summary.getMonthlyIncome(),
                 summary.getMonthlyExpenses(),
                 summary.getCreditScore(),
-                summary.getScoreRange(),
+//                summary.getScoreRange(),
                 summary.getLastUpdated()
         );
     }
