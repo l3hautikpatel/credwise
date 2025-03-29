@@ -16,6 +16,10 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
@@ -137,10 +141,6 @@ public class LoanApplicationService {
         personalInfoRepo.save(personalInfo);
     }
 
-
-
-
-
     private FinancialInfo saveFinancialInformation(LoanApplication application,
                                                    LoanApplicationRequest.FinancialInformation financialInfoDto) {
         // Save main financial info
@@ -212,147 +212,6 @@ public class LoanApplicationService {
         // Save updated financial info with all calculations
         return financialInfoRepo.save(savedFinancialInfo);
     }
-
-
-
-
-//    private FinancialInfo saveFinancialInformation(LoanApplication application,
-//                                                   LoanApplicationRequest.FinancialInformation financialInfoDto) {
-//        // Save main financial info
-//        FinancialInfo financialInfo = new FinancialInfo();
-//        financialInfo.setLoanApplication(application);
-//        financialInfo.setMonthlyIncome(financialInfoDto.getMonthlyIncome());
-//        financialInfo.setMonthlyExpenses(financialInfoDto.getMonthlyExpenses());
-//        financialInfo.setCreditScore(financialInfoDto.getCreditScore());
-//        financialInfo.setEstimatedDebts(financialInfoDto.getEstimatedDebts());
-//        financialInfo.setCurrentCreditLimit(financialInfoDto.getCurrentCreditLimit());
-//        financialInfo.setCreditTotalUsage(financialInfoDto.getCreditTotalUsage());
-//        FinancialInfo savedFinancialInfo = financialInfoRepo.save(financialInfo);
-//
-//        // Save employment history
-//        saveEmploymentHistory(savedFinancialInfo, financialInfoDto.getEmploymentDetails());
-//
-//        // Save debts
-//        saveDebts(savedFinancialInfo, financialInfoDto.getExistingDebts());
-//
-//        // Save assets
-//        saveAssets(savedFinancialInfo, financialInfoDto.getAssets());
-//
-//        return savedFinancialInfo;
-//    }
-
-
-
-
-
-    //
-//    private FinancialInfo saveFinancialInformation(LoanApplication application,
-//                                                   LoanApplicationRequest.FinancialInformation dto) {
-//        // Map DTO to entity
-//        FinancialInfo financialInfo = mapFinancialInfo(dto, application);
-//
-//        // First save to persist debts/assets
-//        FinancialInfo savedInfo = financialInfoRepo.save(financialInfo);
-//
-//        // Calculate derived fields
-//        BigDecimal totalDebts = calculateTotalDebts(savedInfo.getExistingDebts());
-//        BigDecimal totalAssets = calculateTotalAssets(savedInfo.getAssets());
-//        BigDecimal dti = calculateDTI(savedInfo, application.getRequestedAmount(), totalDebts);
-//
-//        // Update entity
-//        savedInfo.setTotalDebts(totalDebts);
-//        savedInfo.setTotalAssets(totalAssets);
-//        savedInfo.setDebtToIncomeRatio(dti);
-//
-//        return financialInfoRepo.save(savedInfo);
-//    }
-//
-//    // Helper methods
-//    private BigDecimal calculateTotalDebts(List<Debt> debts) {
-//        return debts.stream()
-//                .map(Debt::getOutstandingAmount)
-//                .reduce(BigDecimal.ZERO, BigDecimal::add);
-//    }
-//
-//    private BigDecimal calculateTotalAssets(List<Asset> assets) {
-//        return assets.stream()
-//                .map(Asset::getEstimatedValue)
-//                .reduce(BigDecimal.ZERO, BigDecimal::add);
-//    }
-//
-//    private BigDecimal calculateDTI(FinancialInfo info, BigDecimal loanRequest, BigDecimal totalDebts) {
-//        BigDecimal totalDebt = info.getEstimatedDebts().add(totalDebts);
-//        BigDecimal annualIncome = info.getMonthlyIncome().multiply(BigDecimal.valueOf(12));
-//
-//        if (annualIncome.compareTo(BigDecimal.ZERO) <= 0) {
-//            return BigDecimal.ONE;
-//        }
-//
-//        BigDecimal numerator = info.getMonthlyExpenses()
-//                .add(totalDebt)
-//                .add(loanRequest.multiply(BigDecimal.valueOf(0.03)));
-//
-//        return numerator.divide(annualIncome, 4, RoundingMode.HALF_UP);
-//    }
-//
-//    private FinancialInfo mapFinancialInfo(LoanApplicationRequest.FinancialInformation dto,
-//                                           LoanApplication application) {
-//        FinancialInfo info = new FinancialInfo();
-//        info.setLoanApplication(application);
-//        info.setUser(application.getUser());
-//        info.setMonthlyIncome(dto.getMonthlyIncome());
-//        info.setMonthlyExpenses(dto.getMonthlyExpenses());
-//        info.setEstimatedDebts(dto.getEstimatedDebts());
-//        info.setCurrentCreditLimit(dto.getCurrentCreditLimit());
-//        info.setCreditTotalUsage(dto.getCreditTotalUsage());
-//
-//        // Use ArrayList instead of immutable list
-//        List<Debt> debts = new ArrayList<>();
-//        for (LoanApplicationRequest.FinancialInformation.ExistingDebt debtDto : dto.getExistingDebts()) {
-//            debts.add(createDebtEntity(debtDto, info));
-//        }
-//        info.setExistingDebts(debts);
-//
-//        // Use ArrayList instead of immutable list
-//        List<Asset> assets = new ArrayList<>();
-//        for (LoanApplicationRequest.FinancialInformation.Asset assetDto : dto.getAssets()) {
-//            assets.add(createAssetEntity(assetDto, info));
-//        }
-//        info.setAssets(assets);
-//
-//        return info;
-//    }
-//
-//
-//
-//
-//    private Debt createDebtEntity(LoanApplicationRequest.FinancialInformation.ExistingDebt debtDto, FinancialInfo financialInfo) {
-//        Debt debt = new Debt();
-//        debt.setFinancialInfo(financialInfo);
-//        debt.setDebtType(debtDto.getDebtType());
-//        debt.setOutstandingAmount(debtDto.getOutstandingAmount());
-//        debt.setInterestRate(debtDto.getInterestRate());
-//        debt.setMonthlyPayment(debtDto.getMonthlyPayment());
-//        debt.setRemainingTerm(debtDto.getRemainingTermMonths());
-//        debt.setLender(debtDto.getLender());
-//        debt.setPaymentHistory(debtDto.getPaymentHistory());
-//        return debt;
-//    }
-//
-//    private Asset createAssetEntity(LoanApplicationRequest.FinancialInformation.Asset assetDto, FinancialInfo financialInfo) {
-//        Asset asset = new Asset();
-//        asset.setFinancialInfo(financialInfo);
-//        asset.setAssetType(assetDto.getAssetType());
-//        asset.setDescription(assetDto.getDescription());
-//        asset.setEstimatedValue(assetDto.getEstimatedValue());
-//        return asset;
-//    }
-
-
-
-
-
-
 
     private void saveEmploymentHistory(
             FinancialInfo financialInfo,
@@ -441,22 +300,92 @@ public class LoanApplicationService {
     }
 
     private Map<String, Object> prepareCreditData(LoanApplicationRequest request, FinancialInfo financialInfo) {
-        // Implement credit data preparation logic here
-        // Return map of parameters needed for credit score calculation
-        return Map.of();
+        Map<String, Object> creditData = new HashMap<>();
+        
+        // Loan details
+        creditData.put("loanType", request.getLoanDetails().getProductType());
+        creditData.put("requestedAmount", request.getLoanDetails().getRequestedAmount());
+        creditData.put("requestedTermMonths", request.getLoanDetails().getRequestedTermMonths());
+        
+        // Financial info
+        creditData.put("monthlyIncome", financialInfo.getMonthlyIncome());
+        creditData.put("monthlyExpenses", financialInfo.getMonthlyExpenses());
+        creditData.put("estimatedDebts", financialInfo.getEstimatedDebts());
+        creditData.put("totalDebts", financialInfo.getTotalDebts());
+        creditData.put("currentCreditLimit", financialInfo.getCurrentCreditLimit());
+        creditData.put("creditTotalUsage", financialInfo.getCreditTotalUsage());
+        creditData.put("creditUtilization", financialInfo.getCreditUtilization());
+        creditData.put("totalAssets", financialInfo.getTotalAssets());
+        
+        // Payment history - default to "On-time" if not available
+        // In a real system, this would come from a credit bureau
+        creditData.put("paymentHistory", "On-time");
+        
+        // Calculate total employment duration from all employment entries
+        int totalMonthsEmployed = 0;
+        String primaryEmploymentType = "Unemployed";
+        
+        List<EmploymentHistory> employments = financialInfo.getEmploymentDetails();
+        if (employments != null && !employments.isEmpty()) {
+            // Sum up months employed across all jobs
+            totalMonthsEmployed = employments.stream()
+                    .mapToInt(EmploymentHistory::getDurationMonths)
+                    .sum();
+            
+            // Use the most recent employment type as primary
+            primaryEmploymentType = employments.stream()
+                    .filter(e -> e.getEndDate() == null) // Current job
+                    .findFirst()
+                    .map(EmploymentHistory::getEmploymentType)
+                    .orElse(employments.get(0).getEmploymentType());
+        }
+        
+        creditData.put("employmentType", primaryEmploymentType);
+        creditData.put("employmentDurationMonths", totalMonthsEmployed);
+        
+        // Bank accounts - default to 1 if not available
+        creditData.put("bankAccounts", 1);
+        
+        // Extract debt types from existing debts
+        Set<String> debtTypes = new HashSet<>();
+        List<Debt> debts = financialInfo.getExistingDebts();
+        if (debts != null) {
+            debtTypes = debts.stream()
+                    .map(Debt::getDebtType)
+                    .collect(Collectors.toSet());
+        }
+        creditData.put("debtTypes", debtTypes);
+        
+        return creditData;
     }
 
     private void updateApplicationStatus(LoanApplication application, double creditScore) {
-//        application.setCreditScore(creditScore);
-        application.setStatus(creditScore >= 650 ? "APPROVED" : "DENIED");
+        // Store the credit score
+        application.setCreditScore(creditScore);
+        
+        // Use 650 as the threshold for approval
+        if (creditScore >= 650) {
+            application.setStatus("APPROVED");
+        } else {
+            application.setStatus("DENIED");
+        }
+        
         loanAppRepo.save(application);
     }
 
     private LoanApplicationResponse buildSuccessResponse(LoanApplication application) {
-        return new LoanApplicationResponse(
+        LoanApplicationResponse response = new LoanApplicationResponse(
                 application.getId().toString(),
                 "Loan application processed successfully",
                 application.getStatus()
         );
+        
+        // Add credit score to response, properly cast Double to int
+        Double creditScore = application.getCreditScore();
+        if (creditScore != null) {
+            response.setCreditScore(creditScore.intValue());
+        }
+        
+        return response;
     }
 }
