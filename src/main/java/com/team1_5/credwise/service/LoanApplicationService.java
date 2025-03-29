@@ -76,13 +76,19 @@ public class LoanApplicationService {
 
             // 4. Prepare and calculate credit score
             Map<String, Object> creditData = prepareCreditData(request, financialInfo);
-            double creditScore = creditScoreService.calculateCreditScore(creditData);
+            
+            // 5. Calculate credit score and get decision factors
+            Map<String, Object> creditEvaluation = creditScoreService.calculateCreditScore(creditData, financialInfo);
+            double creditScore = ((Number) creditEvaluation.get("creditScore")).doubleValue();
 
-            // 5. Update application status
+            // 6. Update application status
             updateApplicationStatus(application, creditScore);
 
-            // 6. Save documents
+            // 7. Save documents
             saveApplicationDocuments(application, request.getDocuments());
+
+            // 8. Save credit evaluation data for potential use when creating loan result
+            application.setCreditEvaluationData(creditEvaluation);
 
             return buildSuccessResponse(application);
 
@@ -317,9 +323,9 @@ public class LoanApplicationService {
         creditData.put("creditUtilization", financialInfo.getCreditUtilization());
         creditData.put("totalAssets", financialInfo.getTotalAssets());
         
-        // Payment history - default to "On-time" if not available
-        // In a real system, this would come from a credit bureau
-        creditData.put("paymentHistory", "On-time");
+        // Analyze payment history from debt details
+        String paymentHistory = analyzePaymentHistory(financialInfo.getExistingDebts());
+        creditData.put("paymentHistory", paymentHistory);
         
         // Calculate total employment duration from all employment entries
         int totalMonthsEmployed = 0;
@@ -357,6 +363,39 @@ public class LoanApplicationService {
         creditData.put("debtTypes", debtTypes);
         
         return creditData;
+    }
+
+    /**
+     * Analyze payment history from debt details and determine overall payment status
+     * @param debts List of debt entities
+     * @return Overall payment history status (On-time, Late < 30, Late 30-60, Late > 60)
+     */
+    private String analyzePaymentHistory(List<Debt> debts) {
+        if (debts == null || debts.isEmpty()) {
+            return "On-time"; // Default if no debt history
+        }
+        
+        // Track the "worst" payment history status
+        String worstStatus = "On-time";
+        
+        for (Debt debt : debts) {
+            String status = debt.getPaymentHistory();
+            if (status == null) {
+                continue;
+            }
+            
+            // Evaluate severity of payment history
+            if (status.equals("Late > 60") || status.contains("60+")) {
+                return "Late > 60"; // Immediately return the worst status
+            } else if ((status.equals("Late 30-60") || status.contains("30-60")) && !worstStatus.equals("Late > 60")) {
+                worstStatus = "Late 30-60";
+            } else if ((status.equals("Late < 30") || status.contains("< 30")) && 
+                      !worstStatus.equals("Late > 60") && !worstStatus.equals("Late 30-60")) {
+                worstStatus = "Late < 30";
+            }
+        }
+        
+        return worstStatus;
     }
 
     private void updateApplicationStatus(LoanApplication application, double creditScore) {

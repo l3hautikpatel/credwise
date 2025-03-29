@@ -7,17 +7,22 @@ import java.util.Set;
 import java.util.HashSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.team1_5.credwise.model.FinancialInfo;
+import java.util.HashMap;
 
 @Service
 public class CreditScoreService {
     private static final Logger logger = LoggerFactory.getLogger(CreditScoreService.class);
 
     /**
-     * Calculate credit score based on financial data
+     * Calculate credit score based on financial data and update the financial info
      * @param creditData Map of credit-related data from loan application
-     * @return The calculated credit score as a double
+     * @param financialInfo The FinancialInfo entity to update with system-generated score
+     * @return Map containing the calculated credit score and decision factors
      */
-    public double calculateCreditScore(Map<String, Object> creditData) {
+    public Map<String, Object> calculateCreditScore(Map<String, Object> creditData, FinancialInfo financialInfo) {
+        Map<String, Object> result = new HashMap<>();
+        
         try {
             // Map data to the format expected by CanadianCreditScoringSystem
             Map<String, Object> profileData = prepareProfileData(creditData);
@@ -29,11 +34,75 @@ public class CreditScoreService {
             String evaluationReport = CanadianCreditScoringSystem.evaluateCreditProfile(profileData);
             logger.info("Credit Evaluation Report: {}", evaluationReport);
             
-            return creditScore;
+            // Store system-generated credit score in financial info
+            if (financialInfo != null) {
+                financialInfo.setSystemCreditScore(creditScore);
+            }
+            
+            // Extract key metrics for decision factors
+            double dti = CanadianCreditScoringSystem.dtiScore(
+                (double) profileData.get("income"),
+                (double) profileData.get("expenses"),
+                (double) profileData.get("debt"),
+                (double) profileData.get("loanRequest")
+            );
+            
+            String employmentStability = CanadianCreditScoringSystem.determineEmploymentStability(
+                (String) profileData.get("employmentStatus"),
+                (int) profileData.get("monthsEmployed")
+            );
+            
+            String paymentHistoryRating = CanadianCreditScoringSystem.determinePaymentHistoryRating(
+                (String) profileData.get("paymentHistory")
+            );
+            
+            // Prepare result with credit score and decision factors
+            result.put("creditScore", creditScore);
+            result.put("creditScoreRating", CanadianCreditScoringSystem.creditScoreRating(creditScore));
+            result.put("dti", dti);
+            result.put("dtiRating", dti < 0.4 ? "Positive" : "Negative");
+            result.put("employmentStability", employmentStability);
+            result.put("paymentHistoryRating", paymentHistoryRating);
+            
+            // Check credit score difference if user provided one
+            Integer userCreditScore = financialInfo != null ? financialInfo.getCreditScore() : null;
+            if (userCreditScore != null) {
+                int difference = Math.abs(userCreditScore - creditScore);
+                boolean isScoreAccurate = difference <= 25;
+                result.put("creditScoreDifference", difference);
+                result.put("isScoreAccurate", isScoreAccurate);
+                result.put("creditScoreAccuracyMessage", generateCreditScoreAccuracyMessage(userCreditScore, creditScore, isScoreAccurate));
+            }
+            
+            return result;
+            
         } catch (Exception e) {
             logger.error("Error calculating credit score: {}", e.getMessage(), e);
+            
             // Return a default "review needed" score if calculation fails
-            return 650;
+            result.put("creditScore", 650);
+            result.put("error", "Error calculating credit score: " + e.getMessage());
+            
+            return result;
+        }
+    }
+    
+    /**
+     * Legacy method for backward compatibility
+     */
+    public double calculateCreditScore(Map<String, Object> creditData) {
+        Map<String, Object> result = calculateCreditScore(creditData, null);
+        return ((Number)result.get("creditScore")).doubleValue();
+    }
+    
+    /**
+     * Generate message about credit score accuracy
+     */
+    private String generateCreditScoreAccuracyMessage(int userCreditScore, int systemCreditScore, boolean isAccurate) {
+        if (isAccurate) {
+            return "Reported credit score matches our calculations.";
+        } else {
+            return "The reported credit score differs significantly from our calculations.";
         }
     }
     

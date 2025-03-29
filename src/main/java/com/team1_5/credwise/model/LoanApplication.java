@@ -3,6 +3,7 @@ package com.team1_5.credwise.model;
 import jakarta.persistence.*;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 @Entity
 @Table(name = "loan_applications")
@@ -36,6 +37,9 @@ public class LoanApplication {
     @Column(name = "credit_score")
     private Double creditScore;
 
+    // This field is not persisted, just used to pass data between services
+    @Transient
+    private Map<String, Object> creditEvaluationData;
 
     // Add status field to constructor
     public LoanApplication() {
@@ -82,5 +86,13 @@ public class LoanApplication {
     
     public Double getCreditScore() { 
         return creditScore; 
+    }
+    
+    public Map<String, Object> getCreditEvaluationData() {
+        return creditEvaluationData;
+    }
+    
+    public void setCreditEvaluationData(Map<String, Object> creditEvaluationData) {
+        this.creditEvaluationData = creditEvaluationData;
     }
 }

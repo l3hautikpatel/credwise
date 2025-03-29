@@ -85,7 +85,7 @@ public class CanadianCreditScoringSystem {
     }
 
     // Helper method to determine payment history rating
-    private static String determinePaymentHistoryRating(String paymentHistory) {
+    public static String determinePaymentHistoryRating(String paymentHistory) {
         if (paymentHistory.equals("On-time")) {
             return "Excellent";
         } else if (paymentHistory.equals("Late < 60")) {
@@ -96,7 +96,7 @@ public class CanadianCreditScoringSystem {
     }
 
     // Helper method to determine employment stability
-    private static String determineEmploymentStability(String employmentStatus, int monthsEmployed) {
+    public static String determineEmploymentStability(String employmentStatus, int monthsEmployed) {
         return ((employmentStatus.equals("Full-time") && monthsEmployed >= 12) ? "Stable" : "Unstable or Student");
     }
 

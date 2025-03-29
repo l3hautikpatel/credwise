@@ -6,7 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/loan-applications-results")
+@RequestMapping("/api/loan-applications")
 public class LoanApplicationResultController {
 
     private final LoanApplicationResultService loanApplicationResultService;
@@ -15,9 +15,19 @@ public class LoanApplicationResultController {
         this.loanApplicationResultService = loanApplicationResultService;
     }
 
-    @GetMapping("/{applicationId}")
-    public ResponseEntity<LoanApplicationResultResponse> getLoanApplicationResult(@PathVariable Long applicationId) {
-        LoanApplicationResultResponse response = loanApplicationResultService.getLoanApplicationResult(applicationId);
+    @GetMapping("/{loanApplicationId}/result")
+    public ResponseEntity<LoanApplicationResultResponse> getLoanApplicationResult(@PathVariable Long loanApplicationId) {
+        LoanApplicationResultResponse response = loanApplicationResultService.getLoanApplicationResult(loanApplicationId);
+        return ResponseEntity.ok(response);
+    }
+    
+    @PostMapping("/{loanApplicationId}/generate-result")
+    public ResponseEntity<LoanApplicationResultResponse> generateLoanApplicationResult(@PathVariable Long loanApplicationId) {
+        // Generate the result
+        loanApplicationResultService.generateLoanApplicationResult(loanApplicationId);
+        
+        // Return the generated result
+        LoanApplicationResultResponse response = loanApplicationResultService.getLoanApplicationResult(loanApplicationId);
         return ResponseEntity.ok(response);
     }
 }
