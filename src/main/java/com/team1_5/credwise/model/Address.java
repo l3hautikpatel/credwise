@@ -9,39 +9,36 @@ public class Address {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
-    private String street;
+    @Column(name = "street_address")  // Database column name
+    private String streetAddress;     // Entity field name
 
-    @Column(nullable = false)
     private String city;
+    private String province;
 
-    @Column(nullable = false)
-    private String state;
+    @Column(name = "postal_code")
+    private String postalCode;
 
-    @Column(name = "zip_code", nullable = false)
-    private String zipCode;
-
-    @Column(nullable = false)
     private String country;
 
-    @Column(nullable = false)
-    private Integer duration;
-
-    public Address() {}
+    @Column(name = "duration_months")
+    private Integer durationMonths;
 
     // Getters and Setters
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    public String getStreet() { return street; }
-    public void setStreet(String street) { this.street = street; }
+    public String getStreetAddress() { return streetAddress; }
+    public void setStreetAddress(String streetAddress) { this.streetAddress = streetAddress; }
+
     public String getCity() { return city; }
     public void setCity(String city) { this.city = city; }
-    public String getState() { return state; }
-    public void setState(String state) { this.state = state; }
-    public String getZipCode() { return zipCode; }
-    public void setZipCode(String zipCode) { this.zipCode = zipCode; }
+
+    public String getProvince() { return province; }
+    public void setProvince(String province) { this.province = province; }
+
+    public String getPostalCode() { return postalCode; }
+    public void setPostalCode(String postalCode) { this.postalCode = postalCode; }
+
     public String getCountry() { return country; }
     public void setCountry(String country) { this.country = country; }
-    public Integer getDuration() { return duration; }
-    public void setDuration(Integer duration) { this.duration = duration; }
+
+    public Integer getDurationMonths() { return durationMonths; }
+    public void setDurationMonths(Integer durationMonths) { this.durationMonths = durationMonths; }
 }

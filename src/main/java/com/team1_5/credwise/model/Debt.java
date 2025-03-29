@@ -35,6 +35,12 @@ public class Debt {
     @Column(name = "remaining_term", nullable = false)
     private Integer remainingTerm;
 
+    @Column(name = "remaining_term_months")
+    private Integer remainingTermMonths;
+
+    @Column(name = "payment_history")
+    private String paymentHistory;
+
     public Debt() {}
 
     // Getters and Setters
@@ -54,4 +60,17 @@ public class Debt {
     public void setInterestRate(BigDecimal interestRate) { this.interestRate = interestRate; }
     public Integer getRemainingTerm() { return remainingTerm; }
     public void setRemainingTerm(Integer remainingTerm) { this.remainingTerm = remainingTerm; }
+
+    public void setRemainingTermMonths(Integer remainingTermMonths) {
+        this.remainingTermMonths = remainingTermMonths;
+    }
+
+    public void setPaymentHistory(String paymentHistory) {
+        this.paymentHistory = paymentHistory;
+    }
+    public String getPaymentHistory() { return paymentHistory; }
+
+    public Integer getRemainingTermMonths() {
+        return remainingTermMonths;
+    }
 }

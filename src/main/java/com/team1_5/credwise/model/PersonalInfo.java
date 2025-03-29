@@ -33,6 +33,10 @@ public class PersonalInfo {
     @JoinColumn(name = "address_id", nullable = false)
     private Address address;
 
+
+    @Column(name = "credit_score")
+    private Integer creditScore;
+
     public PersonalInfo() {}
 
     // Getters and Setters
@@ -52,4 +56,11 @@ public class PersonalInfo {
     public void setDateOfBirth(LocalDate dateOfBirth) { this.dateOfBirth = dateOfBirth; }
     public Address getAddress() { return address; }
     public void setAddress(Address address) { this.address = address; }
+
+
+    public void setCreditScore(Integer creditScore) {
+        this.creditScore = creditScore;
+
+    }
+    public Integer getCreditScore() { return creditScore; }
 }
