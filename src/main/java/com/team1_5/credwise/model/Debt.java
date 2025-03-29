@@ -32,45 +32,40 @@ public class Debt {
     @Column(name = "interest_rate", nullable = false)
     private BigDecimal interestRate;
 
-    @Column(name = "remaining_term", nullable = false)
+    @Column(name = "remaining_term", nullable = false) // Use correct column name
     private Integer remainingTerm;
-
-    @Column(name = "remaining_term_months")
-    private Integer remainingTermMonths;
 
     @Column(name = "payment_history")
     private String paymentHistory;
 
+    // Constructor
     public Debt() {}
 
     // Getters and Setters
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
+
     public FinancialInfo getFinancialInfo() { return financialInfo; }
     public void setFinancialInfo(FinancialInfo financialInfo) { this.financialInfo = financialInfo; }
+
     public String getDebtType() { return debtType; }
     public void setDebtType(String debtType) { this.debtType = debtType; }
+
     public String getLender() { return lender; }
     public void setLender(String lender) { this.lender = lender; }
+
     public BigDecimal getOutstandingAmount() { return outstandingAmount; }
     public void setOutstandingAmount(BigDecimal outstandingAmount) { this.outstandingAmount = outstandingAmount; }
+
     public BigDecimal getMonthlyPayment() { return monthlyPayment; }
     public void setMonthlyPayment(BigDecimal monthlyPayment) { this.monthlyPayment = monthlyPayment; }
+
     public BigDecimal getInterestRate() { return interestRate; }
     public void setInterestRate(BigDecimal interestRate) { this.interestRate = interestRate; }
+
     public Integer getRemainingTerm() { return remainingTerm; }
     public void setRemainingTerm(Integer remainingTerm) { this.remainingTerm = remainingTerm; }
 
-    public void setRemainingTermMonths(Integer remainingTermMonths) {
-        this.remainingTermMonths = remainingTermMonths;
-    }
-
-    public void setPaymentHistory(String paymentHistory) {
-        this.paymentHistory = paymentHistory;
-    }
     public String getPaymentHistory() { return paymentHistory; }
-
-    public Integer getRemainingTermMonths() {
-        return remainingTermMonths;
-    }
+    public void setPaymentHistory(String paymentHistory) { this.paymentHistory = paymentHistory; }
 }

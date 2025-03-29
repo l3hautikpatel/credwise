@@ -190,7 +190,7 @@ public class LoanApplicationService {
                     debt.setOutstandingAmount(dto.getOutstandingAmount());
                     debt.setInterestRate(dto.getInterestRate());
                     debt.setMonthlyPayment(dto.getMonthlyPayment());
-                    debt.setRemainingTermMonths(dto.getRemainingTermMonths());
+                    debt.setRemainingTerm(dto.getRemainingTermMonths());
                     debt.setLender(dto.getLender());
                     debt.setPaymentHistory(dto.getPaymentHistory());
                     return debt;

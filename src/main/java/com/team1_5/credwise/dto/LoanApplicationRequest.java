@@ -410,17 +410,19 @@ public class LoanApplicationRequest {
             @Positive private BigDecimal outstandingAmount;
             @DecimalMin("0.0") private BigDecimal interestRate;
             @Positive private BigDecimal monthlyPayment;
-            @Positive private Integer remainingTermMonths;
+            @NotNull(message = "Remaining term is required")
+            @Positive(message = "Term must be positive")
+            private Integer remainingTerm; // Match entity field name
             private String lender;
             private String paymentHistory;
 
             // Constructor
-            public ExistingDebt(String debtType, BigDecimal outstandingAmount, BigDecimal interestRate, BigDecimal monthlyPayment, Integer remainingTermMonths, String lender, String paymentHistory) {
+            public ExistingDebt(String debtType, BigDecimal outstandingAmount, BigDecimal interestRate, BigDecimal monthlyPayment, Integer remainingTerm, String lender, String paymentHistory) {
                 this.debtType = debtType;
                 this.outstandingAmount = outstandingAmount;
                 this.interestRate = interestRate;
                 this.monthlyPayment = monthlyPayment;
-                this.remainingTermMonths = remainingTermMonths;
+                this.remainingTerm = remainingTerm;
                 this.lender = lender;
                 this.paymentHistory = paymentHistory;
             }
@@ -459,11 +461,11 @@ public class LoanApplicationRequest {
             }
 
             public Integer getRemainingTermMonths() {
-                return remainingTermMonths;
+                return remainingTerm;
             }
 
             public void setRemainingTermMonths(Integer remainingTermMonths) {
-                this.remainingTermMonths = remainingTermMonths;
+                this.remainingTerm = remainingTermMonths;
             }
 
             public String getLender() {
