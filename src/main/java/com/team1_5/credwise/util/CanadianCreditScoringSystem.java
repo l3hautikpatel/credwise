@@ -4,6 +4,10 @@ import java.util.*;
 
 public class CanadianCreditScoringSystem {
 
+    // Credit score ranges
+    public static final int MIN_CREDIT_SCORE = 300;
+    public static final int MAX_CREDIT_SCORE = 900;
+
     // Main evaluation method
     public static String evaluateCreditProfile(Map<String, Object> profileData) {
         // Validation
@@ -71,28 +75,79 @@ public class CanadianCreditScoringSystem {
         report.append("EMI (" + tenure + " months): " + 
             (emi > 0 ? String.format("$%.2f", emi) : "N/A") + "\n");
         report.append("Eligibility Score: ").append(eligibility).append("/100\n");
-        report.append("Debt Ratio: ").append(dti < 0.4 ? "Positive" : "Negative").append("\n");
-        
+
+        // Credit utilization details
+        double utilizationPercent = (creditLimit > 0) ? (usedCredit / creditLimit) * 100 : 0;
+        report.append(String.format("Credit Utilization: %.1f%% (%s)\n", 
+            utilizationPercent, 
+            utilizationPercent < 30 ? "Good" : utilizationPercent < 75 ? "Fair" : "High"));
+
         // Payment History Rating
         String paymentHistoryRating = determinePaymentHistoryRating(paymentHistory);
         report.append("Payment History Rating: ").append(paymentHistoryRating).append("\n");
-        
+
+        // Debt-to-Income Ratio
+        report.append(String.format("Debt-to-Income Ratio: %.1f%% (%s)\n", 
+            dti * 100, dti < 0.36 ? "Good" : dti < 0.43 ? "Fair" : "High"));
+
         // Employment Stability
         String employmentStability = determineEmploymentStability(employmentStatus, monthsEmployed);
         report.append("Employment Stability: ").append(employmentStability).append("\n");
+
+        // Credit Age Estimate
+        report.append("Credit Age Estimate: ").append(monthsEmployed).append(" months\n");
+
+        // Asset to Debt Ratio
+        double assetToDebtRatio = debt > 0 ? assets / debt : assets > 0 ? 999 : 0;
+        report.append(String.format("Asset-to-Debt Ratio: %.1f (%s)\n", 
+            assetToDebtRatio, 
+            assetToDebtRatio > 2 ? "Excellent" : assetToDebtRatio > 1 ? "Good" : "Needs Improvement"));
 
         return report.toString();
     }
 
     // Helper method to determine payment history rating
     public static String determinePaymentHistoryRating(String paymentHistory) {
-        if (paymentHistory.equals("On-time")) {
+        if (paymentHistory == null) {
+            return "Fair"; // Default rating if no data
+        }
+        
+        String normalizedHistory = paymentHistory.trim().toLowerCase();
+        
+        // Handle various formats of "On-time"
+        if (normalizedHistory.contains("on-time") || 
+            normalizedHistory.contains("ontime") || 
+            normalizedHistory.contains("on time") ||
+            normalizedHistory.equals("excellent")) {
             return "Excellent";
-        } else if (paymentHistory.equals("Late < 60")) {
+        }
+        
+        // Handle various formats of "Late < 30"
+        if (normalizedHistory.contains("< 30") || 
+            normalizedHistory.contains("late < 30") || 
+            normalizedHistory.contains("less than 30") ||
+            normalizedHistory.contains("fair")) {
             return "Fair";
-        } else {
+        }
+        
+        // Handle various formats of "Late 30-60"
+        if (normalizedHistory.contains("30-60") || 
+            normalizedHistory.contains("30 to 60") || 
+            normalizedHistory.contains("between 30 and 60")) {
+            return "Fair";
+        }
+        
+        // Handle various formats of "Late > 60"
+        if (normalizedHistory.contains("> 60") || 
+            normalizedHistory.contains("more than 60") || 
+            normalizedHistory.contains("greater than 60") ||
+            normalizedHistory.contains("60+") ||
+            normalizedHistory.contains("poor")) {
             return "Poor";
         }
+        
+        // Default to Fair for unknown formats
+        return "Fair";
     }
 
     // Helper method to determine employment stability
@@ -167,15 +222,49 @@ public class CanadianCreditScoringSystem {
     }
 
     public static int calculateCreditScore(Map<String, Object> data) {
-        // Canadian style: out of 900
-        double score = 0.35 * paymentHistoryScore((String) data.get("payment_history")) +
-                       0.30 * creditUtilizationScore((double) data.get("used_credit"), (double) data.get("credit_limit")) +
-                       0.15 * (1 - dtiScore((double) data.get("income"), (double) data.get("expenses"), (double) data.get("debt"), (double) data.get("loan_request"))) +
-                       0.10 * employmentScore((String) data.get("employment_status"), (int) data.get("months_employed")) +
-                       0.05 * assetsScore((double) data.get("total_assets"), (double) data.get("income")) +
-                       0.05 * creditMixScore((Set<String>) data.get("debt_types"), (int) data.get("bank_accounts"));
-
-        return (int) Math.round(300 + 600 * score);
+        // Extract data for comprehensive scoring
+        String paymentHistory = (String) data.get("payment_history");
+        double usedCredit = (double) data.get("used_credit");
+        double creditLimit = (double) data.get("credit_limit");
+        
+        // Convert debtTypes to accountTypes if available
+        List<String> accountTypes = new ArrayList<>();
+        if (data.containsKey("debt_types") && data.get("debt_types") instanceof Set) {
+            Set<String> debtTypes = (Set<String>) data.get("debt_types");
+            accountTypes.addAll(debtTypes);
+        }
+        
+        // Credit inquiries - if available
+        List<Date> inquiryDates = new ArrayList<>();
+        if (data.containsKey("inquiry_dates") && data.get("inquiry_dates") instanceof List) {
+            inquiryDates = (List<Date>) data.get("inquiry_dates");
+        }
+        
+        // Historical scores - if available
+        List<Integer> historicalScores = new ArrayList<>();
+        if (data.containsKey("historical_scores") && data.get("historical_scores") instanceof List) {
+            historicalScores = (List<Integer>) data.get("historical_scores");
+        }
+        
+        // Credit age - if available, otherwise estimate from employment
+        int creditAge = 0;
+        if (data.containsKey("credit_age") && data.get("credit_age") instanceof Number) {
+            creditAge = ((Number) data.get("credit_age")).intValue();
+        } else if (data.containsKey("months_employed") && data.get("months_employed") instanceof Number) {
+            // Estimate credit age based on employment duration if not available
+            creditAge = ((Number) data.get("months_employed")).intValue();
+        }
+        
+        // Use the comprehensive scoring method
+        return calculateComprehensiveScore(
+            paymentHistory,
+            usedCredit,
+            creditLimit,
+            accountTypes,
+            inquiryDates,
+            historicalScores,
+            creditAge
+        );
     }
 
     public static String creditScoreRating(int score) {
@@ -258,5 +347,344 @@ public class CanadianCreditScoringSystem {
         profileData.put("debtTypes", profileDataList.get(13));
 
         return profileData;
+    }
+
+    /**
+     * Applies account type weighting to a base credit score.
+     * Different types of credit accounts have different impacts on overall credit worthiness.
+     * 
+     * @param baseScore The calculated base score
+     * @param accountTypes List of account types (credit cards, loans, mortgages, etc.)
+     * @return Weighted score after applying account type adjustments
+     */
+    public static int applyAccountTypeWeighting(int baseScore, List<String> accountTypes) {
+        if (accountTypes == null || accountTypes.isEmpty()) {
+            return baseScore;
+        }
+        
+        int adjustment = 0;
+        boolean hasMortgage = false;
+        boolean hasInstallmentLoan = false;
+        boolean hasCreditCard = false;
+        boolean hasLineOfCredit = false;
+        
+        for (String accountType : accountTypes) {
+            if (accountType == null) continue;
+            
+            String type = accountType.trim().toLowerCase();
+            
+            if (type.contains("mortgage")) {
+                hasMortgage = true;
+            }
+            if (type.contains("loan") || type.contains("auto") || type.contains("car")) {
+                hasInstallmentLoan = true;
+            }
+            if (type.contains("credit card")) {
+                hasCreditCard = true;
+            }
+            if (type.contains("line of credit") || type.contains("loc")) {
+                hasLineOfCredit = true;
+            }
+        }
+        
+        // Credit mix diversity bonus (up to 30 points)
+        int creditMixCount = 0;
+        if (hasMortgage) creditMixCount++;
+        if (hasInstallmentLoan) creditMixCount++;
+        if (hasCreditCard) creditMixCount++;
+        if (hasLineOfCredit) creditMixCount++;
+        
+        // Award points based on diversity of credit mix (good for score)
+        switch (creditMixCount) {
+            case 1: adjustment += 5; break;
+            case 2: adjustment += 15; break;
+            case 3: adjustment += 25; break;
+            case 4: adjustment += 30; break;
+            default: adjustment += 0;
+        }
+        
+        // Apply the adjustment ensuring we don't exceed max score
+        int weightedScore = baseScore + adjustment;
+        return Math.min(weightedScore, MAX_CREDIT_SCORE);
+    }
+
+    /**
+     * Calculates credit utilization ratio with more precision.
+     * Credit utilization has a significant impact on credit scores.
+     * 
+     * @param currentBalance Total current balance across all revolving credit accounts
+     * @param creditLimit Total credit limit across all revolving credit accounts
+     * @return A score component based on the calculated utilization ratio (0-100)
+     */
+    public static int calculateUtilizationScore(double currentBalance, double creditLimit) {
+        if (creditLimit <= 0) {
+            return 0; // Can't calculate utilization without a credit limit
+        }
+        
+        // Calculate utilization as a percentage
+        double utilizationRatio = (currentBalance / creditLimit) * 100;
+        
+        // Apply the Canadian scoring model for utilization
+        // Lower utilization is better for credit score
+        if (utilizationRatio < 10) {
+            return 100; // Excellent: under 10%
+        } else if (utilizationRatio < 30) {
+            return 90; // Very good: 10-30%
+        } else if (utilizationRatio < 50) {
+            return 70; // Good: 30-50%
+        } else if (utilizationRatio < 75) {
+            return 40; // Fair: 50-75%
+        } else if (utilizationRatio < 100) {
+            return 20; // Poor: 75-100%
+        } else {
+            return 0; // Very poor: over 100% (maxed out)
+        }
+    }
+
+    /**
+     * Calculates a stabilized credit score by considering historical scores.
+     * This helps smooth out temporary fluctuations for a more reliable score.
+     * 
+     * @param currentScore The newly calculated credit score
+     * @param historicalScores List of previous credit scores (most recent first)
+     * @return A stabilized credit score
+     */
+    public static int calculateStabilizedScore(int currentScore, List<Integer> historicalScores) {
+        if (historicalScores == null || historicalScores.isEmpty()) {
+            return currentScore; // No history to stabilize with
+        }
+        
+        // Calculate weighted average with most recent scores having higher weight
+        double totalWeight = 0;
+        double weightedSum = 0;
+        
+        // Current score gets highest weight
+        double currentWeight = 1.0;
+        weightedSum += currentScore * currentWeight;
+        totalWeight += currentWeight;
+        
+        // Apply diminishing weights to historical scores (most recent first)
+        double weightFactor = 0.8; // Each previous score has 80% of the weight of the one after it
+        double weight = currentWeight * weightFactor;
+        
+        // Consider up to 5 historical scores at most
+        int scoresToConsider = Math.min(historicalScores.size(), 5);
+        
+        for (int i = 0; i < scoresToConsider; i++) {
+            Integer score = historicalScores.get(i);
+            if (score != null) {
+                weightedSum += score * weight;
+                totalWeight += weight;
+                weight *= weightFactor; // Reduce weight for older scores
+            }
+        }
+        
+        // Calculate the weighted average
+        int stabilizedScore = (int) Math.round(weightedSum / totalWeight);
+        
+        // Ensure the score stays within valid range
+        return Math.max(MIN_CREDIT_SCORE, Math.min(stabilizedScore, MAX_CREDIT_SCORE));
+    }
+
+    /**
+     * Calculates the impact of credit inquiries on the credit score.
+     * Multiple recent inquiries can negatively impact credit score.
+     * 
+     * @param inquiries List of inquiry dates (most recent first)
+     * @return A penalty amount to subtract from the credit score (0-50)
+     */
+    public static int calculateInquiryImpact(List<Date> inquiries) {
+        if (inquiries == null || inquiries.isEmpty()) {
+            return 0; // No inquiries, no impact
+        }
+        
+        // Count inquiries in the last 12 months
+        Date now = new Date();
+        Calendar cal = Calendar.getInstance();
+        cal.setTime(now);
+        cal.add(Calendar.YEAR, -1);
+        Date oneYearAgo = cal.getTime();
+        
+        int recentInquiries = 0;
+        
+        for (Date inquiry : inquiries) {
+            if (inquiry != null && inquiry.after(oneYearAgo)) {
+                recentInquiries++;
+            }
+        }
+        
+        // Calculate impact based on number of recent inquiries
+        if (recentInquiries <= 1) {
+            return 0; // 0-1 inquiries: minimal impact
+        } else if (recentInquiries <= 3) {
+            return 10; // 2-3 inquiries: small impact
+        } else if (recentInquiries <= 6) {
+            return 25; // 4-6 inquiries: moderate impact
+        } else {
+            return 50; // 7+ inquiries: significant impact
+        }
+    }
+
+    /**
+     * Calculates a comprehensive credit score using all available metrics.
+     * This provides a more accurate and detailed credit score assessment.
+     * 
+     * @param paymentHistory Payment history string
+     * @param currentBalance Total current balance
+     * @param creditLimit Total credit limit
+     * @param accountTypes List of account types
+     * @param inquiryDates List of credit inquiry dates
+     * @param historicalScores List of previous credit scores (optional)
+     * @param creditAge Age of oldest credit account in months
+     * @return A comprehensive credit score between MIN_CREDIT_SCORE and MAX_CREDIT_SCORE
+     */
+    public static int calculateComprehensiveScore(
+            String paymentHistory,
+            double currentBalance,
+            double creditLimit,
+            List<String> accountTypes,
+            List<Date> inquiryDates,
+            List<Integer> historicalScores,
+            int creditAge) {
+        
+        // Base score components
+        int paymentHistoryScore = 0;
+        int utilizationScore = 0;
+        int creditAgeScore = 0;
+        int baseScore = 0;
+        
+        // Payment history (35% of score)
+        String paymentRating = determinePaymentHistoryRating(paymentHistory);
+        switch (paymentRating) {
+            case "Excellent": paymentHistoryScore = 300; break;
+            case "Good": paymentHistoryScore = 250; break;
+            case "Fair": paymentHistoryScore = 175; break;
+            case "Poor": paymentHistoryScore = 100; break;
+            default: paymentHistoryScore = 150; // Default to middle score
+        }
+        
+        // Credit utilization (30% of score)
+        utilizationScore = calculateUtilizationScore(currentBalance, creditLimit);
+        
+        // Credit age (15% of score)
+        if (creditAge < 6) {
+            creditAgeScore = 30; // Less than 6 months
+        } else if (creditAge < 24) {
+            creditAgeScore = 60; // 6-24 months
+        } else if (creditAge < 60) {
+            creditAgeScore = 100; // 2-5 years
+        } else if (creditAge < 120) {
+            creditAgeScore = 125; // 5-10 years
+        } else {
+            creditAgeScore = 150; // 10+ years
+        }
+        
+        // Calculate base score from main components
+        baseScore = paymentHistoryScore + (utilizationScore * 3) + creditAgeScore;
+        
+        // Apply account type diversity adjustment
+        int weightedScore = applyAccountTypeWeighting(baseScore, accountTypes);
+        
+        // Subtract penalty for recent inquiries
+        int inquiryPenalty = calculateInquiryImpact(inquiryDates);
+        int adjustedScore = weightedScore - inquiryPenalty;
+        
+        // Ensure score is within valid range
+        adjustedScore = Math.max(MIN_CREDIT_SCORE, Math.min(adjustedScore, MAX_CREDIT_SCORE));
+        
+        // Apply historical stabilization if available
+        return calculateStabilizedScore(adjustedScore, historicalScores);
+    }
+
+    /**
+     * Predicts future credit score improvements based on hypothetical changes.
+     * Helps users understand what actions would most improve their score.
+     * 
+     * @param currentScore The current credit score
+     * @param currentUtilization Current credit utilization percentage
+     * @param paymentHistory Current payment history
+     * @param accountTypes Current account types
+     * @param creditAge Current credit age in months
+     * @return Map of improvement scenarios with predicted score changes
+     */
+    public static Map<String, Integer> predictScoreImprovements(
+            int currentScore,
+            double currentUtilization,
+            String paymentHistory,
+            List<String> accountTypes,
+            int creditAge) {
+        
+        Map<String, Integer> predictions = new HashMap<>();
+        
+        // Predict score if utilization is reduced to 10%
+        if (currentUtilization > 10) {
+            int utilizationImprovement = 0;
+            
+            if (currentUtilization > 75) {
+                utilizationImprovement = 80; // Major improvement
+            } else if (currentUtilization > 50) {
+                utilizationImprovement = 60; // Significant improvement
+            } else if (currentUtilization > 30) {
+                utilizationImprovement = 40; // Moderate improvement
+            } else if (currentUtilization > 10) {
+                utilizationImprovement = 20; // Small improvement
+            }
+            
+            predictions.put("Reduce credit utilization to 10%", 
+                    Math.min(currentScore + utilizationImprovement, MAX_CREDIT_SCORE));
+        }
+        
+        // Predict score if payment history improves over time
+        String paymentRating = determinePaymentHistoryRating(paymentHistory);
+        if (!paymentRating.equals("Excellent")) {
+            int historyImprovement = 0;
+            
+            if (paymentRating.equals("Poor")) {
+                historyImprovement = 100; // Major improvement over 1-2 years
+            } else if (paymentRating.equals("Fair")) {
+                historyImprovement = 50; // Moderate improvement over 1 year
+            }
+            
+            predictions.put("Maintain perfect payment history for 1+ year", 
+                    Math.min(currentScore + historyImprovement, MAX_CREDIT_SCORE));
+        }
+        
+        // Predict score if adding a new account type they don't have
+        boolean hasMortgage = false;
+        boolean hasLoan = false;
+        boolean hasCreditCard = false;
+        boolean hasLineOfCredit = false;
+        
+        for (String type : accountTypes) {
+            if (type == null) continue;
+            String normalizedType = type.toLowerCase();
+            if (normalizedType.contains("mortgage")) hasMortgage = true;
+            if (normalizedType.contains("loan")) hasLoan = true;
+            if (normalizedType.contains("credit card")) hasCreditCard = true;
+            if (normalizedType.contains("line of credit")) hasLineOfCredit = true;
+        }
+        
+        // Suggest account types they don't have
+        int accountDiversityImprovement = 15;
+        if (!hasMortgage && !hasLoan) {
+            predictions.put("Add an installment loan", 
+                    Math.min(currentScore + accountDiversityImprovement, MAX_CREDIT_SCORE));
+        }
+        
+        if (!hasCreditCard) {
+            predictions.put("Open a credit card account", 
+                    Math.min(currentScore + accountDiversityImprovement, MAX_CREDIT_SCORE));
+        }
+        
+        // Predict score improvement as credit history ages
+        if (creditAge < 24) {
+            predictions.put("Wait for credit history to age 2+ years", 
+                    Math.min(currentScore + 30, MAX_CREDIT_SCORE));
+        } else if (creditAge < 60) {
+            predictions.put("Wait for credit history to age 5+ years", 
+                    Math.min(currentScore + 20, MAX_CREDIT_SCORE));
+        }
+        
+        return predictions;
     }
 } 

@@ -33,6 +33,9 @@ public class FinancialInfo {
     @Column(name = "system_credit_score", nullable = true) // Allow null for system-generated score
     private Integer systemCreditScore;
 
+    @Column(name = "eligibility_score")
+    private Integer eligibilityScore;
+
     private BigDecimal currentCreditLimit;
     private BigDecimal creditTotalUsage;
     @Column(name = "credit_utilization")
@@ -158,6 +161,9 @@ public class FinancialInfo {
 
     public Integer getSystemCreditScore() { return systemCreditScore; }
     public void setSystemCreditScore(Integer systemCreditScore) { this.systemCreditScore = systemCreditScore; }
+
+    public Integer getEligibilityScore() { return eligibilityScore; }
+    public void setEligibilityScore(Integer eligibilityScore) { this.eligibilityScore = eligibilityScore; }
 
 
     private void calculateCreditUtilization() {

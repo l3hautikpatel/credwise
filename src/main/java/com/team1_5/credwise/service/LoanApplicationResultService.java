@@ -4,8 +4,10 @@ import com.team1_5.credwise.dto.LoanApplicationResultResponse;
 import com.team1_5.credwise.exception.ResourceNotFoundException;
 import com.team1_5.credwise.model.LoanApplication;
 import com.team1_5.credwise.model.LoanApplicationResult;
+import com.team1_5.credwise.model.FinancialInfo;
 import com.team1_5.credwise.repository.LoanApplicationRepository;
 import com.team1_5.credwise.repository.LoanApplicationResultRepository;
+import com.team1_5.credwise.repository.FinancialInfoRepository;
 import com.team1_5.credwise.util.LoanApplicationResultMapper;
 import com.team1_5.credwise.util.CanadianCreditScoringSystem;
 import org.springframework.stereotype.Service;
@@ -19,14 +21,17 @@ import java.util.Map;
 public class LoanApplicationResultService {
     private final LoanApplicationResultRepository loanApplicationResultRepository;
     private final LoanApplicationRepository loanApplicationRepository;
+    private final FinancialInfoRepository financialInfoRepository;
     private final DecisionFactorService decisionFactorService;
 
     public LoanApplicationResultService(
             LoanApplicationResultRepository loanApplicationResultRepository, 
             LoanApplicationRepository loanApplicationRepository,
+            FinancialInfoRepository financialInfoRepository,
             DecisionFactorService decisionFactorService) {
         this.loanApplicationResultRepository = loanApplicationResultRepository;
         this.loanApplicationRepository = loanApplicationRepository;
+        this.financialInfoRepository = financialInfoRepository;
         this.decisionFactorService = decisionFactorService;
     }
 
@@ -67,15 +72,35 @@ public class LoanApplicationResultService {
                     loanApplicationResultRepository.delete(existingResult);
                 });
         
+        // Get financial info to access eligibility score and system credit score
+        FinancialInfo financialInfo = financialInfoRepository.findByLoanApplicationId(loanApplicationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Financial Info not found for application: " + loanApplicationId));
+        
         // Get credit evaluation data
         Map<String, Object> creditEvaluation = application.getCreditEvaluationData();
         if (creditEvaluation == null || creditEvaluation.isEmpty()) {
             throw new IllegalStateException("Credit evaluation data not available for loan application: " + loanApplicationId);
         }
         
-        // Extract necessary values from credit evaluation
-        int creditScore = ((Number) creditEvaluation.get("creditScore")).intValue();
+        // Extract necessary values from application and financial info
         String decision = application.getStatus();
+        Integer eligibilityScore = financialInfo.getEligibilityScore();
+        Double approvalProbability = null;
+        Double approvedAmount = null;
+        Double interestRate = null;
+        
+        // Check if ML-based decision data is available
+        if (creditEvaluation.containsKey("approval_probability")) {
+            approvalProbability = ((Number) creditEvaluation.get("approval_probability")).doubleValue();
+        }
+        
+        if (creditEvaluation.containsKey("approved_amount")) {
+            approvedAmount = ((Number) creditEvaluation.get("approved_amount")).doubleValue();
+        }
+        
+        if (creditEvaluation.containsKey("interest_rate")) {
+            interestRate = ((Number) creditEvaluation.get("interest_rate")).doubleValue();
+        }
         
         // Create the result
         LoanApplicationResult result = new LoanApplicationResult();
@@ -91,52 +116,97 @@ public class LoanApplicationResultService {
             result.setMessage("Your loan application is pending review.");
         }
         
-        // Calculate eligibility score using CanadianCreditScoringSystem if available
-        int eligibilityScore = 0;
-        if (creditEvaluation.containsKey("dti")) {
-            double dti = ((Number) creditEvaluation.get("dti")).doubleValue();
-            String paymentHistory = (String) creditEvaluation.getOrDefault("paymentHistory", "On-time");
-            int monthsEmployed = ((Number) creditEvaluation.getOrDefault("monthsEmployed", 0)).intValue();
-            
-            eligibilityScore = CanadianCreditScoringSystem.eligibilityScore(
-                    creditScore, dti, paymentHistory, monthsEmployed);
+        // Set eligibility score from financial info if available, otherwise calculate
+        if (eligibilityScore != null) {
+            result.setEligibilityScore(eligibilityScore);
+        } else if (creditEvaluation.containsKey("eligibilityScore")) {
+            result.setEligibilityScore(((Number) creditEvaluation.get("eligibilityScore")).intValue());
         } else {
-            // Default calculation if detailed data is not available
-            eligibilityScore = Math.max(0, Math.min(100, (creditScore - 300) / 6));
+            // Default calculation if no eligibility score is available
+            Integer creditScore = financialInfo.getSystemCreditScore();
+            if (creditScore == null) {
+                creditScore = 650; // Default value if no system credit score
+            }
+            
+            double dti = 0.4; // Default DTI
+            if (financialInfo.getDebtToIncomeRatio() != null) {
+                dti = financialInfo.getDebtToIncomeRatio().doubleValue();
+            }
+            
+            String paymentHistory = "On-time"; // Default payment history
+            int monthsEmployed = 0;
+            if (financialInfo.getEmploymentDetails() != null && !financialInfo.getEmploymentDetails().isEmpty()) {
+                monthsEmployed = financialInfo.getEmploymentDetails().stream()
+                        .mapToInt(employment -> employment.getDurationMonths())
+                        .sum();
+            }
+            
+            int calculatedEligibilityScore = CanadianCreditScoringSystem.eligibilityScore(
+                    creditScore, dti, paymentHistory, monthsEmployed);
+            
+            result.setEligibilityScore(calculatedEligibilityScore);
         }
-        result.setEligibilityScore(eligibilityScore);
         
         // Get original loan request details
         BigDecimal requestedAmount = application.getRequestedAmount();
         Integer requestedTerm = application.getRequestedTermMonths();
         
-        // Calculate suggested terms based on credit score
+        // Calculate suggested terms based on credit score and ML data if available
         BigDecimal maxEligibleAmount;
         String suggestedInterestRate;
         Integer suggestedTerm;
         
         if (decision.equals("APPROVED")) {
-            // Approved for full amount
-            maxEligibleAmount = requestedAmount;
+            // If ML approved amount is available, use it
+            if (approvedAmount != null) {
+                maxEligibleAmount = BigDecimal.valueOf(approvedAmount).setScale(2, RoundingMode.HALF_UP);
+            } else {
+                // Approved for full amount
+                maxEligibleAmount = requestedAmount;
+            }
             
-            // Calculate interest rate based on credit score
-            double baseRate = CanadianCreditScoringSystem.getBaseInterestRate(application.getProductType());
-            double adjustedRate = CanadianCreditScoringSystem.adjustInterestRate(baseRate, creditScore, requestedTerm);
-            suggestedInterestRate = String.format("%.2f%%", adjustedRate * 100);
+            // If ML interest rate is available, use it
+            if (interestRate != null) {
+                suggestedInterestRate = String.format("%.2f%%", interestRate);
+            } else {
+                // Calculate interest rate based on credit score
+                Integer creditScore = financialInfo.getSystemCreditScore();
+                if (creditScore == null) {
+                    creditScore = 650; // Default value if no system credit score
+                }
+                
+                double baseRate = CanadianCreditScoringSystem.getBaseInterestRate(application.getProductType());
+                double adjustedRate = CanadianCreditScoringSystem.adjustInterestRate(baseRate, creditScore, requestedTerm);
+                suggestedInterestRate = String.format("%.2f%%", adjustedRate * 100);
+            }
             
             // Use requested term
             suggestedTerm = requestedTerm;
         } else {
             // Denied or under review
+            Integer creditScore = financialInfo.getSystemCreditScore();
+            if (creditScore == null) {
+                creditScore = 600; // Default value if no system credit score
+            }
+            
             if (creditScore >= 600) {
                 // Potentially eligible for a reduced amount
-                maxEligibleAmount = requestedAmount.multiply(BigDecimal.valueOf(0.7))
-                        .setScale(2, RoundingMode.HALF_UP);
+                if (approvedAmount != null) {
+                    maxEligibleAmount = BigDecimal.valueOf(approvedAmount).setScale(2, RoundingMode.HALF_UP);
+                } else {
+                    maxEligibleAmount = requestedAmount.multiply(BigDecimal.valueOf(0.7))
+                            .setScale(2, RoundingMode.HALF_UP);
+                }
                 
-                // Higher interest rate due to risk
-                double baseRate = CanadianCreditScoringSystem.getBaseInterestRate(application.getProductType());
-                double riskAdjustedRate = baseRate + 0.03; // 3% higher
-                suggestedInterestRate = String.format("%.2f%%", riskAdjustedRate * 100);
+                // Interest rate
+                if (interestRate != null) {
+                    suggestedInterestRate = String.format("%.2f%%", interestRate);
+                } else {
+                    // Higher interest rate due to risk
+                    double baseRate = CanadianCreditScoringSystem.getBaseInterestRate(application.getProductType());
+                    double riskAdjustedRate = baseRate + 0.03; // 3% higher
+                    suggestedInterestRate = String.format("%.2f%%", riskAdjustedRate * 100);
+                }
                 
                 // Suggest shorter term
                 suggestedTerm = Math.min(requestedTerm, 36); // Max 36 months for higher risk
@@ -156,7 +226,7 @@ public class LoanApplicationResultService {
             double principal = maxEligibleAmount.doubleValue();
             double rate = Double.parseDouble(suggestedInterestRate.replace("%", "")) / 100;
             
-            double emi = CanadianCreditScoringSystem.calculateEMI(principal, rate, suggestedTerm);
+            double emi = CanadianCreditScoringSystem.calculateEMI(principal, rate / 12, suggestedTerm);
             result.setEstimatedMonthlyPayment(BigDecimal.valueOf(emi).setScale(2, RoundingMode.HALF_UP));
         } else {
             result.setEstimatedMonthlyPayment(BigDecimal.ZERO);

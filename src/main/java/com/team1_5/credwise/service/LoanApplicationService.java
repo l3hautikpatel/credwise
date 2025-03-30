@@ -65,7 +65,7 @@ public class LoanApplicationService {
             User user = userRepo.findById(userId)
                     .orElseThrow(() -> new LoanApplicationException("User not found", HttpStatus.NOT_FOUND));
 
-            // 1. Save base application
+            // 1. Save base application with SUBMITTED status
             LoanApplication application = saveLoanApplication(user, request);
 
             // 2. Save personal information
@@ -77,18 +77,17 @@ public class LoanApplicationService {
             // 4. Prepare and calculate credit score
             Map<String, Object> creditData = prepareCreditData(request, financialInfo);
             
-            // 5. Calculate credit score and get decision factors
+            // 5. Calculate credit score and get decision factors, but don't use for application status
             Map<String, Object> creditEvaluation = creditScoreService.calculateCreditScore(creditData, financialInfo);
-            double creditScore = ((Number) creditEvaluation.get("creditScore")).doubleValue();
-
-            // 6. Update application status
-            updateApplicationStatus(application, creditScore);
-
-            // 7. Save documents
-            saveApplicationDocuments(application, request.getDocuments());
-
-            // 8. Save credit evaluation data for potential use when creating loan result
+            
+            // 6. Store the credit evaluation data for later use
             application.setCreditEvaluationData(creditEvaluation);
+            
+            // 7. Save financial info with system-generated credit score
+            financialInfoRepo.save(financialInfo);
+            
+            // 8. Save documents
+            saveApplicationDocuments(application, request.getDocuments());
 
             return buildSuccessResponse(application);
 
@@ -119,7 +118,7 @@ public class LoanApplicationService {
         application.setRequestedAmount(request.getLoanDetails().getRequestedAmount());
         application.setPurposeDescription(request.getLoanDetails().getPurposeDescription());
         application.setRequestedTermMonths(request.getLoanDetails().getRequestedTermMonths());
-        application.setStatus("RECEIVED");
+        application.setStatus("SUBMITTED");
         return loanAppRepo.save(application);
     }
 
@@ -398,20 +397,6 @@ public class LoanApplicationService {
         return worstStatus;
     }
 
-    private void updateApplicationStatus(LoanApplication application, double creditScore) {
-        // Store the credit score
-        application.setCreditScore(creditScore);
-        
-        // Use 650 as the threshold for approval
-        if (creditScore >= 650) {
-            application.setStatus("APPROVED");
-        } else {
-            application.setStatus("DENIED");
-        }
-        
-        loanAppRepo.save(application);
-    }
-
     private LoanApplicationResponse buildSuccessResponse(LoanApplication application) {
         LoanApplicationResponse response = new LoanApplicationResponse(
                 application.getId().toString(),
@@ -426,5 +411,39 @@ public class LoanApplicationService {
         }
         
         return response;
+    }
+
+    /**
+     * Process a submitted loan application with the ML model
+     * 
+     * @param applicationId The ID of the loan application to process
+     * @param personalInfo Personal information related to the application
+     * @param financialInfo Financial information related to the application
+     * @param mlService The ML service to use for processing
+     * @return The processed loan application
+     */
+    @Transactional
+    public LoanApplication processApplicationWithML(
+            Long applicationId, 
+            PersonalInfo personalInfo,
+            FinancialInfo financialInfo,
+            LoanMLService mlService) {
+        
+        LoanApplication application = loanAppRepo.findById(applicationId)
+                .orElseThrow(() -> new LoanApplicationException("Loan application not found: " + applicationId, HttpStatus.NOT_FOUND));
+        
+        // Verify that the application is in SUBMITTED status
+        if (!"SUBMITTED".equals(application.getStatus())) {
+            throw new LoanApplicationException("Application must be in SUBMITTED status for ML processing", HttpStatus.BAD_REQUEST);
+        }
+        
+        // Call ML service for decision
+        Map<String, Object> mlDecision = mlService.getLoanDecision(application, financialInfo, personalInfo);
+        
+        // Apply decision to application
+        application = mlService.applyMLDecision(application, mlDecision);
+        
+        // Save the updated application
+        return loanAppRepo.save(application);
     }
 }

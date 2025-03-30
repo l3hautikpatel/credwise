@@ -37,6 +37,23 @@ public class CreditScoreService {
             // Store system-generated credit score in financial info
             if (financialInfo != null) {
                 financialInfo.setSystemCreditScore(creditScore);
+                
+                // Calculate and store eligibility score
+                double dti = CanadianCreditScoringSystem.dtiScore(
+                    (double) profileData.get("income"),
+                    (double) profileData.get("expenses"),
+                    (double) profileData.get("debt"),
+                    (double) profileData.get("loanRequest")
+                );
+                
+                String paymentHistory = (String) profileData.get("paymentHistory");
+                int monthsEmployed = (int) profileData.get("monthsEmployed");
+                
+                int eligibilityScore = CanadianCreditScoringSystem.eligibilityScore(
+                    creditScore, dti, paymentHistory, monthsEmployed
+                );
+                
+                financialInfo.setEligibilityScore(eligibilityScore);
             }
             
             // Extract key metrics for decision factors
@@ -64,6 +81,18 @@ public class CreditScoreService {
             result.put("employmentStability", employmentStability);
             result.put("paymentHistoryRating", paymentHistoryRating);
             
+            // Calculate and include eligibility score
+            if (!result.containsKey("eligibilityScore") && profileData.containsKey("paymentHistory") && profileData.containsKey("monthsEmployed")) {
+                String paymentHistory = (String) profileData.get("paymentHistory");
+                int monthsEmployed = (int) profileData.get("monthsEmployed");
+                
+                int eligibilityScore = CanadianCreditScoringSystem.eligibilityScore(
+                    creditScore, dti, paymentHistory, monthsEmployed
+                );
+                
+                result.put("eligibilityScore", eligibilityScore);
+            }
+            
             // Check credit score difference if user provided one
             Integer userCreditScore = financialInfo != null ? financialInfo.getCreditScore() : null;
             if (userCreditScore != null) {
@@ -79,9 +108,9 @@ public class CreditScoreService {
         } catch (Exception e) {
             logger.error("Error calculating credit score: {}", e.getMessage(), e);
             
-            // Return a default "review needed" score if calculation fails
-            result.put("creditScore", 650);
+            // Return error information instead of default score
             result.put("error", "Error calculating credit score: " + e.getMessage());
+            result.put("creditScore", null);
             
             return result;
         }
@@ -92,7 +121,11 @@ public class CreditScoreService {
      */
     public double calculateCreditScore(Map<String, Object> creditData) {
         Map<String, Object> result = calculateCreditScore(creditData, null);
-        return ((Number)result.get("creditScore")).doubleValue();
+        Number creditScore = (Number) result.get("creditScore");
+        if (creditScore == null) {
+            return 0; // Return 0 instead of default 650
+        }
+        return creditScore.doubleValue();
     }
     
     /**
@@ -117,7 +150,11 @@ public class CreditScoreService {
         
         // Extract and convert values with appropriate defaults as needed
         String loanType = getStringValue(creditData, "loanType", "Personal Loan");
-        double income = getDoubleValue(creditData, "monthlyIncome", 0.0);
+        
+        // Get income as monthly and convert to yearly if needed
+        double monthlyIncome = getDoubleValue(creditData, "monthlyIncome", 0.0);
+        double income = monthlyIncome; // Keep as monthly for CanadianCreditScoringSystem
+        
         double expenses = getDoubleValue(creditData, "monthlyExpenses", 0.0); 
         double debt = getDoubleValue(creditData, "estimatedDebts", 0.0);
         double loanRequest = getDoubleValue(creditData, "requestedAmount", 0.0);
@@ -126,7 +163,7 @@ public class CreditScoreService {
         double usedCredit = getDoubleValue(creditData, "creditTotalUsage", 0.0);
         double creditLimit = getDoubleValue(creditData, "currentCreditLimit", 1.0); // Avoid division by zero
         
-        // For employment, sum up all months if there are multiple employments
+        // For employment
         String employmentStatus = getStringValue(creditData, "employmentType", "Full-time");
         int monthsEmployed = getIntValue(creditData, "employmentDurationMonths", 0);
         
