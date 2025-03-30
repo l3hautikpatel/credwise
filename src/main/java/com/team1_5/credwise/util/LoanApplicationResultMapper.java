@@ -8,26 +8,25 @@ import java.util.stream.Collectors;
 
 public class LoanApplicationResultMapper {
     public static LoanApplicationResultResponse toResponse(LoanApplicationResult result) {
-        LoanApplicationResultResponse response = new LoanApplicationResultResponse();
-        response.setStatus(result.getStatus());
-        response.setMessage(result.getMessage());
-        response.setEligibilityScore(result.getEligibilityScore());
-        response.setMaxEligibleAmount(result.getMaxEligibleAmount());
-        response.setSuggestedInterestRate(result.getSuggestedInterestRate());
-        response.setSuggestedTerm(result.getSuggestedTerm());
-        response.setEstimatedMonthlyPayment(result.getEstimatedMonthlyPayment());
-
         // Convert decision factors
         List<LoanApplicationResultResponse.DecisionFactorResponse> decisionFactors =
-                result.getDecisionFactors().stream().map(df -> {
-                    LoanApplicationResultResponse.DecisionFactorResponse factorResponse = new LoanApplicationResultResponse.DecisionFactorResponse();
-                    factorResponse.setFactor(df.getFactor());
-                    factorResponse.setImpact(df.getImpact());
-                    factorResponse.setDescription(df.getDescription());
-                    return factorResponse;
-                }).collect(Collectors.toList());
+                result.getDecisionFactors().stream().map(df -> 
+                    new LoanApplicationResultResponse.DecisionFactorResponse(
+                        df.getFactor(),
+                        df.getImpact(),
+                        df.getDescription()
+                    )
+                ).collect(Collectors.toList());
 
-        response.setDecisionFactors(decisionFactors);
-        return response;
+        return new LoanApplicationResultResponse(
+            result.getStatus(),
+            result.getMessage(),
+            result.getEligibilityScore(),
+            result.getMaxEligibleAmount(),
+            result.getSuggestedInterestRate(),
+            result.getSuggestedTerm(),
+            result.getEstimatedMonthlyPayment(),
+            decisionFactors
+        );
     }
 }

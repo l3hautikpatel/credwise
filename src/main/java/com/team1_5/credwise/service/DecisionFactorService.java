@@ -110,4 +110,11 @@ public class DecisionFactorService {
     public List<DecisionFactor> getDecisionFactorsByResult(LoanApplicationResult result) {
         return decisionFactorRepository.findByResult(result);
     }
+
+    /**
+     * Get all decision factors for a loan application result by result ID
+     */
+    public List<DecisionFactor> getDecisionFactorsByLoanApplicationResultId(Long resultId) {
+        return decisionFactorRepository.findByResultId(resultId);
+    }
 } 

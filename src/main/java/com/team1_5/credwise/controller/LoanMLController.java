@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+import com.team1_5.credwise.dto.LoanApplicationResultResponse;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -113,8 +114,8 @@ public class LoanMLController {
         
         // 7. Generate loan application result
         try {
-            LoanApplicationResult result = loanApplicationResultService.generateLoanApplicationResult(applicationId);
-            logger.info("Generated loan application result: {}", result.getId());
+            LoanApplicationResultResponse result = loanApplicationResultService.generateLoanApplicationResult(applicationId);
+            logger.info("Generated loan application result: {}", result.getStatus());
         } catch (Exception e) {
             logger.error("Error generating loan application result: {}", e.getMessage(), e);
         }
