@@ -36,6 +36,7 @@ public class LoanApplicationService {
     private final CreditScoreService creditScoreService;
     private final UserRepository userRepo;
     private final LoanMLService loanMLService;
+    private final LoanApplicationResultService loanApplicationResultService;
 
     public LoanApplicationService(LoanApplicationRepository loanAppRepo,
                                   PersonalInfoRepository personalInfoRepo,
@@ -47,7 +48,8 @@ public class LoanApplicationService {
                                   DocumentRepository documentRepo,
                                   CreditScoreService creditScoreService,
                                   UserRepository userRepo,
-                                  LoanMLService loanMLService) {
+                                  LoanMLService loanMLService,
+                                  LoanApplicationResultService loanApplicationResultService) {
         this.loanAppRepo = loanAppRepo;
         this.personalInfoRepo = personalInfoRepo;
         this.addressRepo = addressRepo;
@@ -59,6 +61,7 @@ public class LoanApplicationService {
         this.creditScoreService = creditScoreService;
         this.userRepo = userRepo;
         this.loanMLService = loanMLService;
+        this.loanApplicationResultService = loanApplicationResultService;
     }
 
     public LoanApplicationResponse processLoanApplication(Long userId, LoanApplicationRequest request) {
@@ -95,7 +98,7 @@ public class LoanApplicationService {
             
             // 6. Store the credit evaluation data for later use
             application.setCreditEvaluationData(creditEvaluation);
-            loanAppRepo.save(application);
+            application = loanAppRepo.save(application);
             System.out.println("Updated application with credit evaluation data");
             
             // 7. Update financial info with system-generated credit score and save again
@@ -106,6 +109,21 @@ public class LoanApplicationService {
                 if (creditEvaluation.containsKey("eligibilityScore")) {
                     int eligibilityScore = ((Number) creditEvaluation.get("eligibilityScore")).intValue();
                     financialInfo.setEligibilityScore(eligibilityScore);
+                }
+                
+                // Also set the application credit score for consistency
+                application.setCreditScore((double) systemCreditScore);
+                loanAppRepo.save(application);
+                
+                // Update additional financial metrics
+                if (creditEvaluation.containsKey("dti")) {
+                    double dti = ((Number) creditEvaluation.get("dti")).doubleValue();
+                    financialInfo.setDebtToIncomeRatio(BigDecimal.valueOf(dti));
+                }
+                
+                if (creditEvaluation.containsKey("creditUtilization")) {
+                    double utilization = ((Number) creditEvaluation.get("creditUtilization")).doubleValue();
+                    financialInfo.setCreditUtilization(BigDecimal.valueOf(utilization));
                 }
                 
                 financialInfoRepo.save(financialInfo);
@@ -124,24 +142,48 @@ public class LoanApplicationService {
             try {
                 System.out.println("Attempting to process application with ML service");
                 
+                // Capture the application ID before the lambda
+                final Long appId = application.getId();
+                
                 // Get required objects
-                PersonalInfo personalInfo = personalInfoRepo.findByLoanApplicationId(application.getId())
+                PersonalInfo personalInfo = personalInfoRepo.findByLoanApplicationId(appId)
                         .orElseThrow(() -> new LoanApplicationException(
-                                "Personal info not found for application: " + application.getId(), 
+                                "Personal info not found for application: " + appId, 
                                 HttpStatus.NOT_FOUND));
                 
                 if (loanMLService != null) {
                     // Process with ML
                     System.out.println("Processing application through ML service");
-                    processApplicationWithML(application.getId(), personalInfo, financialInfo, loanMLService);
+                    application = processApplicationWithML(appId, personalInfo, financialInfo, loanMLService);
                     System.out.println("Successfully processed application with ML service");
+                    
+                    // Generate loan application result (this is now done inside processApplicationWithML)
                 } else {
                     System.out.println("LoanMLService is null - cannot process with ML");
+                    
+                    // Try to generate a result using just the credit score data
+                    try {
+                        System.out.println("Attempting to generate loan application result without ML data");
+                        loanApplicationResultService.generateLoanApplicationResult(appId);
+                        System.out.println("Loan application result generated successfully");
+                    } catch (Exception e) {
+                        System.out.println("Error generating loan application result: " + e.getMessage());
+                        e.printStackTrace();
+                    }
                 }
             } catch (Exception e) {
                 System.out.println("Error during ML processing: " + e.getMessage());
                 e.printStackTrace();
-                // Don't fail the whole request if ML processing fails
+                
+                // Try to generate a result using just the credit score data even if ML processing failed
+                try {
+                    System.out.println("Attempting to generate loan application result after ML processing failure");
+                    loanApplicationResultService.generateLoanApplicationResult(application.getId());
+                    System.out.println("Loan application result generated successfully despite ML failure");
+                } catch (Exception resultError) {
+                    System.out.println("Error generating loan application result: " + resultError.getMessage());
+                    resultError.printStackTrace();
+                }
             }
 
             return buildSuccessResponse(application);
@@ -533,7 +575,20 @@ public class LoanApplicationService {
         application = mlService.applyMLDecision(application, mlDecision);
         
         // Save the updated application
-        return loanAppRepo.save(application);
+        application = loanAppRepo.save(application);
+        
+        // Generate loan application result
+        try {
+            System.out.println("Generating loan application result for application ID: " + applicationId);
+            loanApplicationResultService.generateLoanApplicationResult(applicationId);
+            System.out.println("Loan application result generated successfully");
+        } catch (Exception e) {
+            System.out.println("Error generating loan application result: " + e.getMessage());
+            e.printStackTrace();
+            // Don't fail the processing if result generation fails
+        }
+        
+        return application;
     }
 
     /**
@@ -554,7 +609,8 @@ public class LoanApplicationService {
         
         for (LoanApplication application : submittedApplications) {
             try {
-                Long applicationId = application.getId();
+                // Capture the application ID in a final variable
+                final Long applicationId = application.getId();
                 
                 // Get required entities
                 PersonalInfo personalInfo = personalInfoRepo.findByLoanApplicationId(applicationId)
@@ -567,15 +623,27 @@ public class LoanApplicationService {
                                 "Financial info not found for application: " + applicationId, 
                                 HttpStatus.NOT_FOUND));
                 
-                // Process with ML
+                // Process with ML - this will now also generate the loan application result
                 processApplicationWithML(applicationId, personalInfo, financialInfo, mlService);
                 
                 processedCount++;
             } catch (Exception e) {
+                // Capture application ID in a final variable for logging and error handling
+                final Long applicationId = application.getId();
+                
                 // Log the error but continue processing other applications
+                System.out.println("Error processing application " + applicationId + ": " + e.getMessage());
                 application.setStatus("PROCESSING_ERROR");
                 application.setCreditEvaluationData(Map.of("error", e.getMessage()));
                 loanAppRepo.save(application);
+                
+                // Try to generate a result even if the application had an error
+                try {
+                    loanApplicationResultService.generateLoanApplicationResult(applicationId);
+                } catch (Exception resultError) {
+                    System.out.println("Error generating result for application " + applicationId + 
+                                      " after processing error: " + resultError.getMessage());
+                }
             }
         }
         

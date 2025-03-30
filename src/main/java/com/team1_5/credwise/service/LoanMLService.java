@@ -108,12 +108,13 @@ public class LoanMLService {
         
         // Extract decision data - first try the direct ML model response
         boolean isApproved = false;
+        double approvalProbability = 0.0;
         
         if (mlDecision.containsKey("is_approved")) {
             isApproved = (boolean) mlDecision.get("is_approved");
         } else if (mlDecision.containsKey("approval_probability")) {
             // Use approval probability threshold if direct approval not available
-            double approvalProbability = ((Number) mlDecision.get("approval_probability")).doubleValue();
+            approvalProbability = ((Number) mlDecision.get("approval_probability")).doubleValue();
             isApproved = approvalProbability >= 0.7; // 70% threshold
         } else {
             // Use credit score as a fallback
@@ -146,6 +147,50 @@ public class LoanMLService {
             application.setCreditScore(calculatedScore);
             logger.info("Set calculated credit score {} for application {}", calculatedScore, application.getId());
         }
+        
+        // Get existing credit evaluation data or create new map
+        Map<String, Object> creditEvaluationData = application.getCreditEvaluationData();
+        if (creditEvaluationData == null) {
+            creditEvaluationData = new HashMap<>();
+        }
+        
+        // Add ML decision data to credit evaluation data
+        if (mlDecision.containsKey("approval_probability")) {
+            creditEvaluationData.put("approval_probability", mlDecision.get("approval_probability"));
+        }
+        
+        if (mlDecision.containsKey("approved_amount")) {
+            creditEvaluationData.put("approved_amount", mlDecision.get("approved_amount"));
+        } else if (isApproved) {
+            // If approved but no approved amount provided, use requested amount
+            creditEvaluationData.put("approved_amount", application.getRequestedAmount().doubleValue());
+        } else {
+            // If denied, set approved amount to 0
+            creditEvaluationData.put("approved_amount", 0.0);
+        }
+        
+        if (mlDecision.containsKey("interest_rate")) {
+            Double interestRate = ((Number) mlDecision.get("interest_rate")).doubleValue();
+            creditEvaluationData.put("interest_rate", interestRate);
+            // Add formatted interest rate string for display
+            creditEvaluationData.put("interest_rate_formatted", String.format("%.2f%%", interestRate * 100));
+        } else {
+            // Use a default interest rate based on credit score if not provided
+            Integer creditScore = application.getCreditScore() != null ? 
+                    application.getCreditScore().intValue() : 650;
+            double baseRate = 0.05; // 5% base rate
+            if (creditScore < 660) baseRate += 0.02;
+            else if (creditScore < 720) baseRate += 0.01;
+            
+            creditEvaluationData.put("interest_rate", baseRate);
+            creditEvaluationData.put("interest_rate_formatted", String.format("%.2f%%", baseRate * 100));
+        }
+        
+        // Add is_approved flag for consistency
+        creditEvaluationData.put("is_approved", isApproved);
+        
+        // Update the application with the enhanced credit evaluation data
+        application.setCreditEvaluationData(creditEvaluationData);
         
         return application;
     }
