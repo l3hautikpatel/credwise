@@ -10,6 +10,8 @@ import com.team1_5.credwise.repository.LoanApplicationResultRepository;
 import com.team1_5.credwise.repository.FinancialInfoRepository;
 import com.team1_5.credwise.util.LoanApplicationResultMapper;
 import com.team1_5.credwise.util.CanadianCreditScoringSystem;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,6 +21,8 @@ import java.util.Map;
 
 @Service
 public class LoanApplicationResultService {
+    private static final Logger logger = LoggerFactory.getLogger(LoanApplicationResultService.class);
+    
     private final LoanApplicationResultRepository loanApplicationResultRepository;
     private final LoanApplicationRepository loanApplicationRepository;
     private final FinancialInfoRepository financialInfoRepository;
@@ -61,6 +65,8 @@ public class LoanApplicationResultService {
      */
     @Transactional
     public LoanApplicationResult generateLoanApplicationResult(Long loanApplicationId) {
+        logger.info("Generating loan application result for application ID: {}", loanApplicationId);
+        
         // Find the loan application
         LoanApplication application = loanApplicationRepository.findById(loanApplicationId)
                 .orElseThrow(() -> new ResourceNotFoundException("Loan Application not found with ID: " + loanApplicationId));
@@ -68,6 +74,7 @@ public class LoanApplicationResultService {
         // Check if the application has a result already
         loanApplicationResultRepository.findByLoanApplicationId(loanApplicationId)
                 .ifPresent(existingResult -> {
+                    logger.info("Deleting existing result for application ID: {}", loanApplicationId);
                     // Delete existing result
                     loanApplicationResultRepository.delete(existingResult);
                 });
@@ -79,8 +86,11 @@ public class LoanApplicationResultService {
         // Get credit evaluation data
         Map<String, Object> creditEvaluation = application.getCreditEvaluationData();
         if (creditEvaluation == null || creditEvaluation.isEmpty()) {
+            logger.error("Credit evaluation data not available for loan application: {}", loanApplicationId);
             throw new IllegalStateException("Credit evaluation data not available for loan application: " + loanApplicationId);
         }
+        
+        logger.info("Credit evaluation data for application {}: {}", loanApplicationId, creditEvaluation);
         
         // Extract necessary values from application and financial info
         String decision = application.getStatus();
@@ -92,14 +102,17 @@ public class LoanApplicationResultService {
         // Check if ML-based decision data is available
         if (creditEvaluation.containsKey("approval_probability")) {
             approvalProbability = ((Number) creditEvaluation.get("approval_probability")).doubleValue();
+            logger.info("Approval probability from ML for application {}: {}", loanApplicationId, approvalProbability);
         }
         
         if (creditEvaluation.containsKey("approved_amount")) {
             approvedAmount = ((Number) creditEvaluation.get("approved_amount")).doubleValue();
+            logger.info("Approved amount from ML for application {}: {}", loanApplicationId, approvedAmount);
         }
         
         if (creditEvaluation.containsKey("interest_rate")) {
             interestRate = ((Number) creditEvaluation.get("interest_rate")).doubleValue();
+            logger.info("Interest rate from ML for application {}: {}", loanApplicationId, interestRate);
         }
         
         // Create the result
@@ -145,6 +158,14 @@ public class LoanApplicationResultService {
                     creditScore, dti, paymentHistory, monthsEmployed);
             
             result.setEligibilityScore(calculatedEligibilityScore);
+            
+            // Update financial info with the calculated eligibility score
+            if (financialInfo.getEligibilityScore() == null) {
+                financialInfo.setEligibilityScore(calculatedEligibilityScore);
+                financialInfoRepository.save(financialInfo);
+                logger.info("Updated financial info with eligibility score {} for application {}", 
+                        calculatedEligibilityScore, loanApplicationId);
+            }
         }
         
         // Get original loan request details
@@ -217,6 +238,7 @@ public class LoanApplicationResultService {
                 suggestedTerm = 0;
             }
         }
+        
         result.setMaxEligibleAmount(maxEligibleAmount);
         result.setSuggestedInterestRate(suggestedInterestRate);
         result.setSuggestedTerm(suggestedTerm);
@@ -233,9 +255,11 @@ public class LoanApplicationResultService {
         }
         
         // Save the result
+        logger.info("Saving loan application result for application {}", loanApplicationId);
         LoanApplicationResult savedResult = loanApplicationResultRepository.save(result);
         
         // Create decision factors
+        logger.info("Creating decision factors for application {}", loanApplicationId);
         decisionFactorService.createDecisionFactors(savedResult, creditEvaluation);
         
         return savedResult;

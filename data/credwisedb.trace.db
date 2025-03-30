@@ -1,0 +1,6 @@
+2025-03-29 23:12:35.382018-04:00 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "SELECT * FROM[*]"; expected "identifier"; SQL statement:
+SELECT * FROM [42001-232]
+2025-03-29 23:21:29.340405-04:00 jdbc[13]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "IFINANCIAL_SUMMARY" not found; SQL statement:
+SELECT * FROM iFINANCIAL_SUMMARY [42102-232]

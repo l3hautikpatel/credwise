@@ -222,16 +222,82 @@ public class CanadianCreditScoringSystem {
     }
 
     public static int calculateCreditScore(Map<String, Object> data) {
-        // Extract data for comprehensive scoring
-        String paymentHistory = (String) data.get("payment_history");
-        double usedCredit = (double) data.get("used_credit");
-        double creditLimit = (double) data.get("credit_limit");
+        // Add comprehensive debug to help troubleshoot the exact data we receive
+        System.out.println("Calculating credit score with full data contents:");
+        for (Map.Entry<String, Object> entry : data.entrySet()) {
+            System.out.println("  Key: '" + entry.getKey() + "', Value: '" + 
+                             (entry.getValue() == null ? "null" : entry.getValue()) + 
+                             "', Type: " + (entry.getValue() == null ? "null" : entry.getValue().getClass().getName()));
+        }
+        
+        // First check for used_credit key (preferred format)
+        Double usedCredit = null;
+        if (data.containsKey("used_credit")) {
+            usedCredit = getDoubleValueSafely(data, "used_credit", 0.0);
+            System.out.println("Found used_credit key with value: " + usedCredit);
+        } 
+        // Then check usedCredit (alternative format)
+        else if (data.containsKey("usedCredit")) {
+            usedCredit = getDoubleValueSafely(data, "usedCredit", 0.0);
+            System.out.println("Found usedCredit key with value: " + usedCredit);
+        }
+        // Finally check creditTotalUsage (another alternative format)
+        else if (data.containsKey("creditTotalUsage")) {
+            usedCredit = getDoubleValueSafely(data, "creditTotalUsage", 0.0);
+            System.out.println("Found creditTotalUsage key with value: " + usedCredit);
+        }
+        else {
+            System.out.println("No key found for credit usage, using default 0.0");
+            usedCredit = 0.0;
+        }
+        
+        // First check for credit_limit key (preferred format)
+        Double creditLimit = null;
+        if (data.containsKey("credit_limit")) {
+            creditLimit = getDoubleValueSafely(data, "credit_limit", 1000.0);
+            System.out.println("Found credit_limit key with value: " + creditLimit);
+        } 
+        // Then check creditLimit (alternative format)
+        else if (data.containsKey("creditLimit")) {
+            creditLimit = getDoubleValueSafely(data, "creditLimit", 1000.0);
+            System.out.println("Found creditLimit key with value: " + creditLimit);
+        }
+        // Finally check currentCreditLimit (another alternative format)
+        else if (data.containsKey("currentCreditLimit")) {
+            creditLimit = getDoubleValueSafely(data, "currentCreditLimit", 1000.0);
+            System.out.println("Found currentCreditLimit key with value: " + creditLimit);
+        }
+        else {
+            System.out.println("No key found for credit limit, using default 1000.0");
+            creditLimit = 1000.0;
+        }
+        
+        // Similar check for payment history
+        String paymentHistory = null;
+        if (data.containsKey("payment_history")) {
+            paymentHistory = data.get("payment_history") != null ? (String) data.get("payment_history") : "On-time";
+            System.out.println("Found payment_history key with value: " + paymentHistory);
+        }
+        else if (data.containsKey("paymentHistory")) {
+            paymentHistory = data.get("paymentHistory") != null ? (String) data.get("paymentHistory") : "On-time";
+            System.out.println("Found paymentHistory key with value: " + paymentHistory);
+        }
+        else {
+            System.out.println("No key found for payment history, using default 'On-time'");
+            paymentHistory = "On-time";
+        }
         
         // Convert debtTypes to accountTypes if available
         List<String> accountTypes = new ArrayList<>();
         if (data.containsKey("debt_types") && data.get("debt_types") instanceof Set) {
             Set<String> debtTypes = (Set<String>) data.get("debt_types");
             accountTypes.addAll(debtTypes);
+            System.out.println("Found debt_types key with " + debtTypes.size() + " items");
+        }
+        else if (data.containsKey("debtTypes") && data.get("debtTypes") instanceof Set) {
+            Set<String> debtTypes = (Set<String>) data.get("debtTypes");
+            accountTypes.addAll(debtTypes);
+            System.out.println("Found debtTypes key with " + debtTypes.size() + " items");
         }
         
         // Credit inquiries - if available
@@ -250,10 +316,19 @@ public class CanadianCreditScoringSystem {
         int creditAge = 0;
         if (data.containsKey("credit_age") && data.get("credit_age") instanceof Number) {
             creditAge = ((Number) data.get("credit_age")).intValue();
-        } else if (data.containsKey("months_employed") && data.get("months_employed") instanceof Number) {
+        } else if (data.containsKey("monthsEmployed") && data.get("monthsEmployed") instanceof Number) {
             // Estimate credit age based on employment duration if not available
-            creditAge = ((Number) data.get("months_employed")).intValue();
+            creditAge = ((Number) data.get("monthsEmployed")).intValue();
         }
+        
+        System.out.println("About to call calculateComprehensiveScore with: " +
+                          "paymentHistory=" + paymentHistory + 
+                          ", usedCredit=" + usedCredit + 
+                          ", creditLimit=" + creditLimit + 
+                          ", accountTypes=" + accountTypes.size() + 
+                          ", inquiryDates=" + inquiryDates.size() + 
+                          ", historicalScores=" + historicalScores.size() + 
+                          ", creditAge=" + creditAge);
         
         // Use the comprehensive scoring method
         return calculateComprehensiveScore(
@@ -265,6 +340,37 @@ public class CanadianCreditScoringSystem {
             historicalScores,
             creditAge
         );
+    }
+
+    /**
+     * Helper method to safely extract double values from a map
+     * @param data The map containing the data
+     * @param key The key to extract
+     * @param defaultValue The default value to use if the key is missing or null
+     * @return The double value or the default
+     */
+    private static double getDoubleValueSafely(Map<String, Object> data, String key, double defaultValue) {
+        if (data == null || !data.containsKey(key) || data.get(key) == null) {
+            System.out.println("Warning: Missing or null value for key: " + key + ", using default: " + defaultValue);
+            return defaultValue;
+        }
+        
+        Object value = data.get(key);
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        } else if (value instanceof String) {
+            try {
+                return Double.parseDouble((String) value);
+            } catch (NumberFormatException e) {
+                System.out.println("Warning: Could not parse string value for key: " + key + ", using default: " + defaultValue);
+                return defaultValue;
+            }
+        } else if (value instanceof Boolean) {
+            return ((Boolean) value) ? 1.0 : 0.0;
+        }
+        
+        System.out.println("Warning: Unexpected type for key: " + key + " (" + value.getClass().getName() + "), using default: " + defaultValue);
+        return defaultValue;
     }
 
     public static String creditScoreRating(int score) {

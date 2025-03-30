@@ -35,6 +35,7 @@ public class LoanApplicationService {
     private final DocumentRepository documentRepo;
     private final CreditScoreService creditScoreService;
     private final UserRepository userRepo;
+    private final LoanMLService loanMLService;
 
     public LoanApplicationService(LoanApplicationRepository loanAppRepo,
                                   PersonalInfoRepository personalInfoRepo,
@@ -45,7 +46,8 @@ public class LoanApplicationService {
                                   AssetRepository assetRepo,
                                   DocumentRepository documentRepo,
                                   CreditScoreService creditScoreService,
-                                  UserRepository userRepo) {
+                                  UserRepository userRepo,
+                                  LoanMLService loanMLService) {
         this.loanAppRepo = loanAppRepo;
         this.personalInfoRepo = personalInfoRepo;
         this.addressRepo = addressRepo;
@@ -56,44 +58,101 @@ public class LoanApplicationService {
         this.documentRepo = documentRepo;
         this.creditScoreService = creditScoreService;
         this.userRepo = userRepo;
+        this.loanMLService = loanMLService;
     }
 
     public LoanApplicationResponse processLoanApplication(Long userId, LoanApplicationRequest request) {
         validateRequest(request);
 
         try {
+            // Log the request for debugging
+            System.out.println("Processing loan application for user ID: " + userId);
+            System.out.println("Loan details: " + request.getLoanDetails().getProductType() + 
+                              ", Amount: " + request.getLoanDetails().getRequestedAmount());
+            
             User user = userRepo.findById(userId)
-                    .orElseThrow(() -> new LoanApplicationException("User not found", HttpStatus.NOT_FOUND));
+                    .orElseThrow(() -> new LoanApplicationException("User not found: " + userId, HttpStatus.NOT_FOUND));
 
             // 1. Save base application with SUBMITTED status
             LoanApplication application = saveLoanApplication(user, request);
+            System.out.println("Saved base loan application with ID: " + application.getId());
 
             // 2. Save personal information
             savePersonalInformation(application, request.getPersonalInformation());
+            System.out.println("Saved personal information for application ID: " + application.getId());
 
             // 3. Save financial information
             FinancialInfo financialInfo = saveFinancialInformation(application, request.getFinancialInformation());
+            System.out.println("Saved financial information with ID: " + financialInfo.getId());
 
             // 4. Prepare and calculate credit score
             Map<String, Object> creditData = prepareCreditData(request, financialInfo);
             
-            // 5. Calculate credit score and get decision factors, but don't use for application status
+            // 5. Calculate credit score and get decision factors
             Map<String, Object> creditEvaluation = creditScoreService.calculateCreditScore(creditData, financialInfo);
+            System.out.println("Calculated credit score: " + 
+                             (creditEvaluation.containsKey("creditScore") ? creditEvaluation.get("creditScore") : "Not available"));
             
             // 6. Store the credit evaluation data for later use
             application.setCreditEvaluationData(creditEvaluation);
+            loanAppRepo.save(application);
+            System.out.println("Updated application with credit evaluation data");
             
-            // 7. Save financial info with system-generated credit score
-            financialInfoRepo.save(financialInfo);
+            // 7. Update financial info with system-generated credit score and save again
+            if (creditEvaluation.containsKey("creditScore")) {
+                int systemCreditScore = ((Number) creditEvaluation.get("creditScore")).intValue();
+                financialInfo.setSystemCreditScore(systemCreditScore);
+                
+                if (creditEvaluation.containsKey("eligibilityScore")) {
+                    int eligibilityScore = ((Number) creditEvaluation.get("eligibilityScore")).intValue();
+                    financialInfo.setEligibilityScore(eligibilityScore);
+                }
+                
+                financialInfoRepo.save(financialInfo);
+                System.out.println("Updated financial info with system credit score: " + systemCreditScore);
+            }
             
             // 8. Save documents
-            saveApplicationDocuments(application, request.getDocuments());
+            if (request.getDocuments() != null && !request.getDocuments().isEmpty()) {
+                saveApplicationDocuments(application, request.getDocuments());
+                System.out.println("Saved " + request.getDocuments().size() + " documents");
+            } else {
+                System.out.println("No documents to save");
+            }
+
+            // 9. Process with ML service (new step)
+            try {
+                System.out.println("Attempting to process application with ML service");
+                
+                // Get required objects
+                PersonalInfo personalInfo = personalInfoRepo.findByLoanApplicationId(application.getId())
+                        .orElseThrow(() -> new LoanApplicationException(
+                                "Personal info not found for application: " + application.getId(), 
+                                HttpStatus.NOT_FOUND));
+                
+                if (loanMLService != null) {
+                    // Process with ML
+                    System.out.println("Processing application through ML service");
+                    processApplicationWithML(application.getId(), personalInfo, financialInfo, loanMLService);
+                    System.out.println("Successfully processed application with ML service");
+                } else {
+                    System.out.println("LoanMLService is null - cannot process with ML");
+                }
+            } catch (Exception e) {
+                System.out.println("Error during ML processing: " + e.getMessage());
+                e.printStackTrace();
+                // Don't fail the whole request if ML processing fails
+            }
 
             return buildSuccessResponse(application);
 
         } catch (LoanApplicationException e) {
+            System.out.println("Loan application exception: " + e.getMessage());
+            e.printStackTrace();
             throw e;
         } catch (Exception e) {
+            System.out.println("Unexpected error in loan application: " + e.getMessage());
+            e.printStackTrace();
             throw new LoanApplicationException("Processing failed: " + e.getMessage(),
                     HttpStatus.INTERNAL_SERVER_ERROR);
         }
@@ -307,24 +366,47 @@ public class LoanApplicationService {
     private Map<String, Object> prepareCreditData(LoanApplicationRequest request, FinancialInfo financialInfo) {
         Map<String, Object> creditData = new HashMap<>();
         
+        // Print for debugging
+        System.out.println("Preparing credit data from financial info ID: " + 
+                          (financialInfo != null ? financialInfo.getId() : "null"));
+        
         // Loan details
         creditData.put("loanType", request.getLoanDetails().getProductType());
-        creditData.put("requestedAmount", request.getLoanDetails().getRequestedAmount());
+        creditData.put("requestedAmount", request.getLoanDetails().getRequestedAmount().doubleValue());
         creditData.put("requestedTermMonths", request.getLoanDetails().getRequestedTermMonths());
         
-        // Financial info
-        creditData.put("monthlyIncome", financialInfo.getMonthlyIncome());
-        creditData.put("monthlyExpenses", financialInfo.getMonthlyExpenses());
-        creditData.put("estimatedDebts", financialInfo.getEstimatedDebts());
-        creditData.put("totalDebts", financialInfo.getTotalDebts());
-        creditData.put("currentCreditLimit", financialInfo.getCurrentCreditLimit());
-        creditData.put("creditTotalUsage", financialInfo.getCreditTotalUsage());
-        creditData.put("creditUtilization", financialInfo.getCreditUtilization());
-        creditData.put("totalAssets", financialInfo.getTotalAssets());
+        // Financial info - make sure we have values for all fields, even if null
+        // Also map to the keys expected by CanadianCreditScoringSystem
+        try {
+            creditData.put("income", financialInfo.getMonthlyIncome().doubleValue());
+            creditData.put("expenses", financialInfo.getMonthlyExpenses().doubleValue());
+            creditData.put("debt", financialInfo.getEstimatedDebts().doubleValue());
+            creditData.put("loanRequest", request.getLoanDetails().getRequestedAmount().doubleValue());
+            creditData.put("used_credit", financialInfo.getCreditTotalUsage().doubleValue());
+            creditData.put("credit_limit", financialInfo.getCurrentCreditLimit().doubleValue());
+            
+            // Optional fields with null checks
+            creditData.put("totalDebts", financialInfo.getTotalDebts() != null ? 
+                          financialInfo.getTotalDebts().doubleValue() : 0.0);
+            creditData.put("creditUtilization", financialInfo.getCreditUtilization() != null ? 
+                          financialInfo.getCreditUtilization().doubleValue() : 0.0);
+            creditData.put("totalAssets", financialInfo.getTotalAssets() != null ? 
+                          financialInfo.getTotalAssets().doubleValue() : 0.0);
+        } catch (Exception e) {
+            System.out.println("Error converting financial values: " + e.getMessage());
+            // Provide default values if exception occurs
+            creditData.put("income", 1000.0);
+            creditData.put("expenses", 500.0);
+            creditData.put("debt", 0.0);
+            creditData.put("loanRequest", request.getLoanDetails().getRequestedAmount().doubleValue());
+            creditData.put("used_credit", 0.0);
+            creditData.put("credit_limit", 1000.0);
+        }
         
         // Analyze payment history from debt details
         String paymentHistory = analyzePaymentHistory(financialInfo.getExistingDebts());
-        creditData.put("paymentHistory", paymentHistory);
+        creditData.put("payment_history", paymentHistory); // This matches the key in calculateCreditScore
+        creditData.put("paymentHistory", paymentHistory);  // Keep this for backward compatibility
         
         // Calculate total employment duration from all employment entries
         int totalMonthsEmployed = 0;
@@ -345,8 +427,8 @@ public class LoanApplicationService {
                     .orElse(employments.get(0).getEmploymentType());
         }
         
-        creditData.put("employmentType", primaryEmploymentType);
-        creditData.put("employmentDurationMonths", totalMonthsEmployed);
+        creditData.put("employmentStatus", primaryEmploymentType);
+        creditData.put("monthsEmployed", totalMonthsEmployed);
         
         // Bank accounts - default to 1 if not available
         creditData.put("bankAccounts", 1);
@@ -359,7 +441,14 @@ public class LoanApplicationService {
                     .map(Debt::getDebtType)
                     .collect(Collectors.toSet());
         }
-        creditData.put("debtTypes", debtTypes);
+        creditData.put("debt_types", debtTypes); // Match key in calculateCreditScore
+        creditData.put("debtTypes", debtTypes);  // Keep for backward compatibility
+        
+        // Add tenure for interest calculation
+        creditData.put("tenure", request.getLoanDetails().getRequestedTermMonths());
+        
+        // Print out what we're sending to help debug
+        System.out.println("Prepared credit data: " + creditData);
         
         return creditData;
     }
@@ -445,5 +534,81 @@ public class LoanApplicationService {
         
         // Save the updated application
         return loanAppRepo.save(application);
+    }
+
+    /**
+     * Find and process all loan applications with SUBMITTED status
+     * 
+     * @param mlService The ML service to use for processing
+     * @return Number of applications processed
+     */
+    @Transactional
+    public int processAllSubmittedApplications(LoanMLService mlService) {
+        List<LoanApplication> submittedApplications = loanAppRepo.findByStatus("SUBMITTED");
+        
+        if (submittedApplications.isEmpty()) {
+            return 0;
+        }
+        
+        int processedCount = 0;
+        
+        for (LoanApplication application : submittedApplications) {
+            try {
+                Long applicationId = application.getId();
+                
+                // Get required entities
+                PersonalInfo personalInfo = personalInfoRepo.findByLoanApplicationId(applicationId)
+                        .orElseThrow(() -> new LoanApplicationException(
+                                "Personal info not found for application: " + applicationId, 
+                                HttpStatus.NOT_FOUND));
+                
+                FinancialInfo financialInfo = financialInfoRepo.findByLoanApplicationId(applicationId)
+                        .orElseThrow(() -> new LoanApplicationException(
+                                "Financial info not found for application: " + applicationId, 
+                                HttpStatus.NOT_FOUND));
+                
+                // Process with ML
+                processApplicationWithML(applicationId, personalInfo, financialInfo, mlService);
+                
+                processedCount++;
+            } catch (Exception e) {
+                // Log the error but continue processing other applications
+                application.setStatus("PROCESSING_ERROR");
+                application.setCreditEvaluationData(Map.of("error", e.getMessage()));
+                loanAppRepo.save(application);
+            }
+        }
+        
+        return processedCount;
+    }
+
+    /**
+     * Get a loan application by ID
+     * 
+     * @param applicationId The ID of the loan application
+     * @return The loan application or null if not found
+     */
+    public LoanApplication getLoanApplication(Long applicationId) {
+        return loanAppRepo.findById(applicationId).orElse(null);
+    }
+
+    /**
+     * Get personal info for a loan application
+     * 
+     * @param applicationId The loan application ID
+     * @return The personal info or null if not found
+     */
+    public PersonalInfo getPersonalInfo(Long applicationId) {
+        return personalInfoRepo.findByLoanApplicationId(applicationId).orElse(null);
+    }
+
+    /**
+     * Get financial info for a loan application
+     * 
+     * @param applicationId The loan application ID
+     * @return The financial info or null if not found
+     */
+    public FinancialInfo getFinancialInfo(Long applicationId) {
+        return financialInfoRepo.findByLoanApplicationId(applicationId).orElse(null);
     }
 }
