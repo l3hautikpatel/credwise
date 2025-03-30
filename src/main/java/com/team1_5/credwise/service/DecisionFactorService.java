@@ -52,10 +52,24 @@ public class DecisionFactorService {
 
         // Employment Stability factor
         String employmentStability = (String) creditEvaluationData.get("employmentStability");
+        
+        // Debug logging for employment stability - added for troubleshooting
+        System.out.println("DEBUG: DECISION FACTORS - Employment Stability Value: " + employmentStability);
+        System.out.println("DEBUG: DECISION FACTORS - Credit Evaluation Data: " + creditEvaluationData);
+        if (creditEvaluationData.containsKey("monthsEmployed")) {
+            System.out.println("DEBUG: DECISION FACTORS - Months Employed: " + creditEvaluationData.get("monthsEmployed"));
+        }
+        if (creditEvaluationData.containsKey("employmentStatus")) {
+            System.out.println("DEBUG: DECISION FACTORS - Employment Status: " + creditEvaluationData.get("employmentStatus"));
+        }
+        
         String employmentImpact = employmentStability.equals("Stable") ? "Positive" : "Negative";
         String employmentDescription = employmentStability.equals("Stable") 
                 ? "Employment status indicates stability." 
                 : "Employment history shows insufficient stability.";
+                
+        System.out.println("DEBUG: DECISION FACTORS - Employment Impact: " + employmentImpact);
+        System.out.println("DEBUG: DECISION FACTORS - Employment Description: " + employmentDescription);
                 
         factors.add(createFactor(result, "Employment Stability", employmentImpact, employmentDescription));
 

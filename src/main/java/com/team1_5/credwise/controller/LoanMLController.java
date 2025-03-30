@@ -177,9 +177,9 @@ public class LoanMLController {
                 
                 // Employment data
                 if (financialInfo.getEmploymentDetails() != null && !financialInfo.getEmploymentDetails().isEmpty()) {
-                    // Calculate total employment duration
+                    // Calculate total employment duration from all jobs
                     int totalMonthsEmployed = financialInfo.getEmploymentDetails().stream()
-                            .mapToInt(employment -> employment.getDurationMonths())
+                            .mapToInt(employment -> employment.getDurationMonths() != null ? employment.getDurationMonths() : 0)
                             .sum();
                     creditData.put("monthsEmployed", totalMonthsEmployed);
                     
@@ -193,6 +193,9 @@ public class LoanMLController {
                     
                     // Estimate credit age based on employment
                     creditData.put("creditAge", Math.max(totalMonthsEmployed, 6));
+                    
+                    // Log employment details for debugging
+                    System.out.println("Employment details: status=" + employmentStatus + ", totalMonths=" + totalMonthsEmployed);
                 } else {
                     creditData.put("employmentStatus", "Unemployed");
                     creditData.put("monthsEmployed", 0);

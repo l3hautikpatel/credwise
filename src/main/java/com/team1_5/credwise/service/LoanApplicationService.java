@@ -132,7 +132,7 @@ public class LoanApplicationService {
             
             // 8. Save documents
             if (request.getDocuments() != null && !request.getDocuments().isEmpty()) {
-                saveApplicationDocuments(application, request.getDocuments());
+            saveApplicationDocuments(application, request.getDocuments());
                 System.out.println("Saved " + request.getDocuments().size() + " documents");
             } else {
                 System.out.println("No documents to save");
@@ -273,8 +273,62 @@ public class LoanApplicationService {
         // Save temporarily to get an ID for relationships
         FinancialInfo savedFinancialInfo = financialInfoRepo.save(financialInfo);
 
-        // Save employment history
-        saveEmploymentHistory(savedFinancialInfo, financialInfoDto.getEmploymentDetails());
+        // DEBUG: Print employment details from the DTO before saving
+        List<LoanApplicationRequest.FinancialInformation.EmploymentDetail> employmentDetails = 
+            financialInfoDto.getEmploymentDetails();
+            
+        System.out.println("FINANCIAL DEBUG: Processing employments before saving. Count: " + 
+            (employmentDetails != null ? employmentDetails.size() : "null"));
+        
+        if (employmentDetails != null && !employmentDetails.isEmpty()) {
+            System.out.println("FINANCIAL DEBUG: First employment duration: " + 
+                employmentDetails.get(0).getEmploymentDurationMonths());
+        }
+
+        // Save employment history - inline instead of helper method
+        if (employmentDetails != null && !employmentDetails.isEmpty()) {
+            System.out.println("FINANCIAL DEBUG: Creating and saving employment history records...");
+            
+            List<EmploymentHistory> histories = new java.util.ArrayList<>();
+            
+            for (LoanApplicationRequest.FinancialInformation.EmploymentDetail dto : employmentDetails) {
+                EmploymentHistory history = new EmploymentHistory();
+                history.setFinancialInfo(savedFinancialInfo);
+                history.setEmployerName(dto.getEmployerName());
+                history.setPosition(dto.getPosition());
+                history.setStartDate(dto.getStartDate());
+                history.setEndDate(dto.getEndDate());
+                history.setEmploymentType(dto.getEmploymentType());
+                
+                // Make sure we correctly set the duration months and handle potential null values
+                Integer durationMonths = dto.getEmploymentDurationMonths();
+                if (durationMonths == null && dto.getStartDate() != null) {
+                    // Calculate duration from dates if available
+                    LocalDate endDate = dto.getEndDate() != null ? dto.getEndDate() : LocalDate.now();
+                    durationMonths = calculateMonthsBetween(dto.getStartDate(), endDate);
+                    System.out.println("FINANCIAL DEBUG: Calculated duration from dates: " + durationMonths + " months");
+                }
+                
+                history.setDurationMonths(durationMonths);
+                
+                System.out.println("FINANCIAL DEBUG: Adding employment record with duration: " + 
+                    durationMonths + " months, employer: " + dto.getEmployerName());
+                
+                histories.add(history);
+            }
+            
+            // Save all employment histories
+            List<EmploymentHistory> savedHistories = employmentRepo.saveAll(histories);
+            System.out.println("FINANCIAL DEBUG: Saved " + savedHistories.size() + " employment records");
+            
+            // Verify they were saved correctly
+            List<EmploymentHistory> verifyEmps = employmentRepo.findByFinancialInfoId(savedFinancialInfo.getId());
+            System.out.println("FINANCIAL DEBUG: Verification - Found " + 
+                (verifyEmps != null ? verifyEmps.size() : "null") + " employment records for financial info ID " + 
+                savedFinancialInfo.getId());
+        } else {
+            System.out.println("FINANCIAL DEBUG: No employment data to save");
+        }
 
         // Save debts
         saveDebts(savedFinancialInfo, financialInfoDto.getExistingDebts());
@@ -316,27 +370,15 @@ public class LoanApplicationService {
         }
 
         // Save updated financial info with all calculations
-        return financialInfoRepo.save(savedFinancialInfo);
-    }
-
-    private void saveEmploymentHistory(
-            FinancialInfo financialInfo,
-            List<LoanApplicationRequest.FinancialInformation.EmploymentDetail> employmentDetails
-    )  {
-        List<EmploymentHistory> histories = employmentDetails.stream()
-                .map(dto -> {
-                    EmploymentHistory history = new EmploymentHistory();
-                    history.setFinancialInfo(financialInfo);
-                    history.setEmployerName(dto.getEmployerName());
-                    history.setPosition(dto.getPosition());
-                    history.setStartDate(dto.getStartDate());
-                    history.setEndDate(dto.getEndDate());
-                    history.setEmploymentType(dto.getEmploymentType());
-                    history.setDurationMonths(dto.getEmploymentDurationMonths());
-                    return history;
-                })
-                .toList();
-        employmentRepo.saveAll(histories);
+        savedFinancialInfo = financialInfoRepo.save(savedFinancialInfo);
+        
+        // Final verification
+        List<EmploymentHistory> finalEmps = employmentRepo.findByFinancialInfoId(savedFinancialInfo.getId());
+        System.out.println("FINAL EMPLOYMENT CHECK: Found " + 
+            (finalEmps != null ? finalEmps.size() : "null") + " employment records for financial info ID " + 
+            savedFinancialInfo.getId());
+            
+        return savedFinancialInfo;
     }
 
     private void saveDebts(FinancialInfo financialInfo,
@@ -451,29 +493,105 @@ public class LoanApplicationService {
                 
                 // Calculate employment data
                 List<EmploymentHistory> employments = financialInfo.getEmploymentDetails();
-                if (employments != null && !employments.isEmpty()) {
+                System.out.println("DEBUG - Employment data check: financialInfo ID=" + financialInfo.getId() +
+                                 ", employments list size=" + (employments != null ? employments.size() : "null"));
+                
+                // Track if we need to fall back to request data
+                boolean useRequestData = employments == null || employments.isEmpty();
+                
+                // First try with database records if available
+                if (!useRequestData) {
+                    // Debug each employment record
+                    for (EmploymentHistory emp : employments) {
+                        System.out.println("DEBUG - Employment record: ID=" + emp.getId() +
+                                         ", Employer=" + emp.getEmployerName() +
+                                         ", Type=" + emp.getEmploymentType() +
+                                         ", Duration=" + emp.getDurationMonths() + " months" +
+                                         ", Start=" + emp.getStartDate() +
+                                         ", End=" + emp.getEndDate());
+                    }
+                
                     // Get total employment duration
                     int totalMonthsEmployed = employments.stream()
-                            .mapToInt(EmploymentHistory::getDurationMonths)
+                            .mapToInt(emp -> emp.getDurationMonths() != null ? emp.getDurationMonths() : 0)
                             .sum();
-                    creditData.put("monthsEmployed", totalMonthsEmployed);
+                            
+                    // If total is still 0, we'll need to fall back to request data
+                    if (totalMonthsEmployed == 0) {
+                        useRequestData = true;
+                        System.out.println("DEBUG - Zero months detected in database records, will check request data");
+                    } else {
+                        // Use the database values
+                        creditData.put("monthsEmployed", totalMonthsEmployed);
+                        
+                        // Determine current employment status
+                        String primaryEmploymentType = employments.stream()
+                                .filter(e -> e.getEndDate() == null)
+                                .findFirst()
+                                .map(EmploymentHistory::getEmploymentType)
+                                .orElse(employments.get(0).getEmploymentType());
+                        creditData.put("employmentStatus", primaryEmploymentType);
+                        
+                        // Estimate credit age based on employment duration
+                        creditData.put("creditAge", Math.max(totalMonthsEmployed, 6));
+                        
+                        // Log employment information for debugging
+                        System.out.println("Employment calculation from DB: status=" + primaryEmploymentType + 
+                                          ", totalMonths=" + totalMonthsEmployed + 
+                                          ", jobs=" + employments.size());
+                    }
+                }
+                
+                // Try to fallback to request data if needed
+                if (useRequestData && request.getFinancialInformation() != null) {
+                    System.out.println("DEBUG - Using request data for employment information");
                     
-                    // Determine current employment status
-                    String primaryEmploymentType = employments.stream()
+                    // Try to get employment duration from the request
+                    List<LoanApplicationRequest.FinancialInformation.EmploymentDetail> requestEmployments = 
+                        request.getFinancialInformation().getEmploymentDetails();
+                        
+                    if (requestEmployments != null && !requestEmployments.isEmpty()) {
+                        // Calculate from request data instead
+                        int totalMonthsEmployed = requestEmployments.stream()
+                            .mapToInt(emp -> emp.getEmploymentDurationMonths() != null ? 
+                                      emp.getEmploymentDurationMonths() : 0)
+                            .sum();
+                            
+                        // Debug each employment record from request
+                        for (int i = 0; i < requestEmployments.size(); i++) {
+                            LoanApplicationRequest.FinancialInformation.EmploymentDetail emp = requestEmployments.get(i);
+                            System.out.println("DEBUG - Request employment record #" + (i+1) + 
+                                             ": Employer=" + emp.getEmployerName() +
+                                             ", Type=" + emp.getEmploymentType() +
+                                             ", Duration=" + emp.getEmploymentDurationMonths() + " months");
+                        }
+                            
+                        System.out.println("DEBUG - Found employment data in request: " + 
+                                          totalMonthsEmployed + " months from " +
+                                          requestEmployments.size() + " jobs");
+                                          
+                        // Find the current/primary employment type
+                        String primaryEmploymentType = requestEmployments.stream()
                             .filter(e -> e.getEndDate() == null)
                             .findFirst()
-                            .map(EmploymentHistory::getEmploymentType)
-                            .orElse(employments.get(0).getEmploymentType());
-                    creditData.put("employmentStatus", primaryEmploymentType);
-                    
-                    // Estimate credit age based on employment duration
-                    // Assume credit history is roughly aligned with employment
-                    creditData.put("creditAge", Math.max(totalMonthsEmployed, 6));
-                } else {
-                    // Default values if no employment data
-                    creditData.put("monthsEmployed", 0);
-                    creditData.put("employmentStatus", "Unemployed");
-                    creditData.put("creditAge", 6); // Minimum credit age
+                            .map(LoanApplicationRequest.FinancialInformation.EmploymentDetail::getEmploymentType)
+                            .orElse(requestEmployments.get(0).getEmploymentType());
+                            
+                        // Update credit data with request values
+                        creditData.put("monthsEmployed", totalMonthsEmployed);
+                        creditData.put("employmentStatus", primaryEmploymentType);
+                        creditData.put("creditAge", Math.max(totalMonthsEmployed, 6));
+                        
+                        System.out.println("Employment calculation from request: status=" + primaryEmploymentType + 
+                                          ", totalMonths=" + totalMonthsEmployed + 
+                                          ", jobs=" + requestEmployments.size());
+                    } else {
+                        // Default values if no employment data in request either
+                        System.out.println("WARNING: No employment data found in database or request");
+                        creditData.put("monthsEmployed", 0);
+                        creditData.put("employmentStatus", "Unemployed");
+                        creditData.put("creditAge", 6); // Minimum credit age
+                    }
                 }
                 
                 // Extract debt types
@@ -725,5 +843,12 @@ public class LoanApplicationService {
      */
     public FinancialInfo getFinancialInfo(Long applicationId) {
         return financialInfoRepo.findByLoanApplicationId(applicationId).orElse(null);
+    }
+
+    /**
+     * Calculate number of months between two dates
+     */
+    private int calculateMonthsBetween(LocalDate startDate, LocalDate endDate) {
+        return (int) (startDate.until(endDate, java.time.temporal.ChronoUnit.MONTHS));
     }
 }

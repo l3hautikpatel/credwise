@@ -233,8 +233,12 @@ public class LoanMLService {
                 
                 // Sum up months employed across all jobs
                 monthsEmployed = employments.stream()
-                        .mapToInt(EmploymentHistory::getDurationMonths)
+                        .mapToInt(emp -> emp.getDurationMonths() != null ? emp.getDurationMonths() : 0)
                         .sum();
+                
+                // Log employment calculation for debugging
+                logger.info("Total months employed: {} (across {} jobs)", 
+                    monthsEmployed, employments.size());
             }
         }
         

@@ -152,7 +152,26 @@ public class CanadianCreditScoringSystem {
 
     // Helper method to determine employment stability
     public static String determineEmploymentStability(String employmentStatus, int monthsEmployed) {
-        return ((employmentStatus.equals("Full-time") && monthsEmployed >= 12) || monthsEmployed >= 24) ? "Stable" : "Unstable or Student";
+        // Debug logging
+        System.out.println("EMPLOYMENT STABILITY CHECK: status=" + employmentStatus + ", months=" + monthsEmployed);
+        System.out.println("CONDITION 1 (Full-time >= 12 months): " + (employmentStatus.equals("Full-time") && monthsEmployed >= 12));
+        System.out.println("CONDITION 2 (Any type >= 24 months): " + (monthsEmployed >= 24));
+        
+        // Fix: Ensure any employment over 24 months is considered stable (which would include 30+ months)
+        // The existing condition "monthsEmployed >= 24" should already cover the 30+ months case
+        // We'll make the logic more explicit and add additional debugging
+        
+        boolean isFullTimeStable = employmentStatus.equals("Full-time") && monthsEmployed >= 12;
+        boolean isLongTermStable = monthsEmployed >= 24; // This includes 30+ months
+        boolean isStable = isFullTimeStable || isLongTermStable;
+        
+        System.out.println("EMPLOYMENT STABILITY CHECK ADDITIONAL: monthsEmployed >= 24: " + (monthsEmployed >= 24));
+        System.out.println("EMPLOYMENT STABILITY CHECK ADDITIONAL: monthsEmployed >= 30: " + (monthsEmployed >= 30));
+        String result = isStable ? "Stable" : "Unstable or Student";
+        
+        System.out.println("EMPLOYMENT STABILITY RESULT: " + result);
+        
+        return result;
     }
 
     // Validation helper method
@@ -237,7 +256,30 @@ public class CanadianCreditScoringSystem {
     }
 
     public static double employmentScore(String status, int months) {
-        return ((status.equals("Full-time") && months >= 12) || months >= 24) ? 1.0 : 0.5;
+        // Add debugging to help troubleshoot
+        System.out.println("EMPLOYMENT SCORE CALCULATION: status=" + status + ", months=" + months);
+        
+        // Check for each condition that could lead to a "stable" determination
+        boolean isFullTimeStable = status.equals("Full-time") && months >= 12;
+        boolean isLongTermStable = months >= 24; // This includes 30+ months case
+        
+        // More detailed scoring with debug output
+        double score = 0.5; // Default/base score
+        
+        if (isLongTermStable) {
+            score = 1.0; // Higher score for long-term employment (24+ months including 30+ months)
+            System.out.println("EMPLOYMENT SCORE: 1.0 (Long-term stable: " + months + " months)");
+        } else if (isFullTimeStable) {
+            score = 0.9; // Good score for full-time employment 12+ months
+            System.out.println("EMPLOYMENT SCORE: 0.9 (Full-time stable: " + months + " months)");
+        } else if (months >= 6) {
+            score = 0.7; // Medium score for reasonable employment duration
+            System.out.println("EMPLOYMENT SCORE: 0.7 (Some stability: " + months + " months)");
+        } else {
+            System.out.println("EMPLOYMENT SCORE: 0.5 (Limited stability: " + months + " months)");
+        }
+        
+        return score;
     }
 
     public static double assetsScore(double assets, double income) {
@@ -354,16 +396,25 @@ public class CanadianCreditScoringSystem {
             
             // 6. Employment Status and Income Stability Bonus
             int employmentBonus = 0;
-            if (employmentStatus.equalsIgnoreCase("Full-time") && monthsEmployed >= 24) {
-                employmentBonus = 40;         // Long-term full-time employment bonus
-            } else if (employmentStatus.equalsIgnoreCase("Full-time") && monthsEmployed >= 12) {
-                employmentBonus = 25;         // Full-time employment bonus
-            } else if (employmentStatus.equalsIgnoreCase("Part-time") && monthsEmployed >= 12) {
-                employmentBonus = 15;         // Part-time employment bonus
-            } else if (monthsEmployed >= 36) {
-                employmentBonus = 30;         // Long-term employment bonus (any type)
+            
+            // Print debugging info for employment bonus calculation
+            System.out.println("EMPLOYMENT BONUS CALCULATION: status=" + employmentStatus + ", months=" + monthsEmployed);
+            
+            // Update to ensure 30+ months is properly recognized
+            if (monthsEmployed >= 36) {
+                employmentBonus = 40;         // Long-term employment bonus (any type, 3+ years)
+                System.out.println("EMPLOYMENT BONUS: 40 (36+ months employment)");
             } else if (monthsEmployed >= 24) {
-                employmentBonus = 20;         // Medium-term employment bonus (any type)
+                employmentBonus = 30;         // Medium-long term employment bonus (any type, 2+ years)
+                System.out.println("EMPLOYMENT BONUS: 30 (24-35 months employment)");
+            } else if (employmentStatus.equalsIgnoreCase("Full-time") && monthsEmployed >= 12) {
+                employmentBonus = 25;         // Full-time employment bonus (1+ year)
+                System.out.println("EMPLOYMENT BONUS: 25 (Full-time 12+ months)");
+            } else if (employmentStatus.equalsIgnoreCase("Part-time") && monthsEmployed >= 12) {
+                employmentBonus = 15;         // Part-time employment bonus (1+ year)
+                System.out.println("EMPLOYMENT BONUS: 15 (Part-time 12+ months)");
+            } else {
+                System.out.println("EMPLOYMENT BONUS: 0 (Insufficient employment history)");
             }
             
             // 7. Assets to Debt Ratio Bonus
@@ -392,8 +443,6 @@ public class CanadianCreditScoringSystem {
                 dtiComponent = 30;            // Very good DTI: 25-36%
             } else if (dti < 0.43) {
                 dtiComponent = 20;            // Good DTI: 36-43%
-            } else if (dti < 0.5) {
-                dtiComponent = 10;            // Fair DTI: 43-50%
             } else {
                 dtiComponent = 0;             // Poor DTI: above 50%
             }
@@ -556,12 +605,54 @@ public class CanadianCreditScoringSystem {
         return (principal * r * Math.pow(1 + r, months)) / (Math.pow(1 + r, months) - 1);
     }
 
-    public static int eligibilityScore(int score, double dti, String history, int months) {
-        int base = (int) ((score - 300) / 6.0);  // Normalize to ~100
-        if (dti < 0.3) base += 5;
-        if (history.equals("On-time")) base += 5;
-        if (months >= 12) base += 5;
-        return Math.min(base, 100);
+    /**
+     * Calculate an eligibility score (0-100) based on credit factors
+     */
+    public static int eligibilityScore(int creditScore, double dti, String paymentHistory, int monthsEmployed) {
+        // Debug logging
+        System.out.println("ELIGIBILITY CALCULATION - Credit: " + creditScore + ", DTI: " + dti + 
+                          ", Payment History: " + paymentHistory + ", Months Employed: " + monthsEmployed);
+        
+        // Base score derived from credit score (0-60 points)
+        int baseScore = Math.max(0, Math.min(60, (creditScore - 300) * 60 / 600));
+        
+        // DTI Component (0-15 points)
+        int dtiComponent = 15;
+        if (dti > 0.5) dtiComponent = 0;       // Over 50% DTI
+        else if (dti > 0.43) dtiComponent = 5; // 43-50% DTI
+        else if (dti > 0.36) dtiComponent = 10; // 36-43% DTI
+        
+        // Payment History Component (0-15 points)
+        int paymentComponent = 15;
+        if (paymentHistory == null) paymentComponent = 10;
+        else if (paymentHistory.contains("> 60") || paymentHistory.contains("60+")) paymentComponent = 0;
+        else if (paymentHistory.contains("30-60")) paymentComponent = 5;
+        else if (paymentHistory.contains("< 30")) paymentComponent = 10;
+        
+        // Employment Stability Component (0-10 points)
+        int employmentComponent = 0;
+        
+        // Update employment scoring to ensure 24+ months (including 30+ months) gets full points
+        if (monthsEmployed >= 24) {
+            employmentComponent = 10; // Stable long-term employment (2+ years including 30+ months)
+        } else if (monthsEmployed >= 12) {
+            employmentComponent = 8;  // Moderate employment stability (1+ year)
+        } else if (monthsEmployed >= 6) {
+            employmentComponent = 5;  // Some employment history (6+ months)
+        } else if (monthsEmployed > 0) {
+            employmentComponent = 2;  // Limited employment history
+        }
+        
+        int totalScore = baseScore + dtiComponent + paymentComponent + employmentComponent;
+        
+        // Debug the calculation
+        System.out.println("ELIGIBILITY SCORE COMPONENTS - Base: " + baseScore + 
+                          ", DTI: " + dtiComponent + 
+                          ", Payment: " + paymentComponent + 
+                          ", Employment: " + employmentComponent + 
+                          " = Total: " + totalScore);
+        
+        return totalScore;
     }
 
     // Decision Making Methods
