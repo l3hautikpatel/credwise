@@ -152,7 +152,7 @@ public class CanadianCreditScoringSystem {
 
     // Helper method to determine employment stability
     public static String determineEmploymentStability(String employmentStatus, int monthsEmployed) {
-        return ((employmentStatus.equals("Full-time") && monthsEmployed >= 12) ? "Stable" : "Unstable or Student");
+        return ((employmentStatus.equals("Full-time") && monthsEmployed >= 12) || monthsEmployed >= 24) ? "Stable" : "Unstable or Student";
     }
 
     // Validation helper method
@@ -197,8 +197,35 @@ public class CanadianCreditScoringSystem {
         return Math.max(0, Math.min(1, 1 - ratio));
     }
 
-    public static double dtiScore(double income, double expenses, double debt, double loanRequest) {
-        return (income > 0) ? (expenses + debt + 0.03 * loanRequest) / (income * 12) : 1.0;
+    /**
+     * Calculate Debt-to-Income ratio to assess borrower's ability to manage monthly payments
+     * @param income Monthly income
+     * @param expenses Monthly expenses
+     * @param existingDebt Current total debt
+     * @param loanAmount Amount being requested for loan
+     * @return DTI ratio as a decimal (0.0-1.0)
+     */
+    public static double dtiScore(double income, double expenses, double existingDebt, double loanAmount) {
+        try {
+            // Calculate monthly debt payment (approximate using 5% of total debt as monthly payment)
+            // This is a simplified estimation - in reality would depend on terms of each debt
+            double existingMonthlyDebtPayment = existingDebt * 0.05;
+            
+            // Calculate estimated monthly payment for new loan (simplified using 2% of loan amount)
+            double estimatedLoanMonthlyPayment = loanAmount * 0.02;
+            
+            // Total monthly obligations: expenses + existing debt payments + new loan payment
+            double totalMonthlyObligations = expenses + existingMonthlyDebtPayment + estimatedLoanMonthlyPayment;
+            
+            // Calculate Debt-to-Income ratio
+            double dti = (income > 0) ? (totalMonthlyObligations / income) : 1.0;
+            
+            // Ensure DTI is between 0 and 1 for calculation purposes
+            return Math.max(0.0, Math.min(1.0, dti));
+        } catch (Exception e) {
+            System.out.println("Error calculating DTI score: " + e.getMessage());
+            return 0.5; // Return moderate DTI on error
+        }
     }
 
     public static double paymentHistoryScore(String status) {
@@ -210,7 +237,7 @@ public class CanadianCreditScoringSystem {
     }
 
     public static double employmentScore(String status, int months) {
-        return (status.equals("Full-time") && months >= 12) ? 1.0 : 0.5;
+        return ((status.equals("Full-time") && months >= 12) || months >= 24) ? 1.0 : 0.5;
     }
 
     public static double assetsScore(double assets, double income) {
@@ -223,131 +250,242 @@ public class CanadianCreditScoringSystem {
 
     public static int calculateCreditScore(Map<String, Object> data) {
         // Add comprehensive debug to help troubleshoot the exact data we receive
-        System.out.println("Calculating credit score with full data contents:");
-        for (Map.Entry<String, Object> entry : data.entrySet()) {
-            System.out.println("  Key: '" + entry.getKey() + "', Value: '" + 
-                             (entry.getValue() == null ? "null" : entry.getValue()) + 
-                             "', Type: " + (entry.getValue() == null ? "null" : entry.getValue().getClass().getName()));
+        System.out.println("Calculating credit score with data: " + data);
+        
+        try {
+            // Extract base metrics with proper defaults
+            String paymentHistory = getStringValueSafely(data, "paymentHistory", "On-time");
+            double usedCredit = getDoubleValueSafely(data, "usedCredit", 0.0);
+            double creditLimit = getDoubleValueSafely(data, "creditLimit", 1000.0);
+            String employmentStatus = getStringValueSafely(data, "employmentStatus", "Unemployed");
+            int monthsEmployed = getIntValueSafely(data, "monthsEmployed", 0);
+            double assets = getDoubleValueSafely(data, "assets", 0.0);
+            double debt = getDoubleValueSafely(data, "debt", 0.0);
+            double income = getDoubleValueSafely(data, "income", 3000.0); // Default reasonable income
+            double expenses = getDoubleValueSafely(data, "expenses", 1500.0); // Default reasonable expenses
+            
+            // Gather debt types
+            Set<String> debtTypes = new HashSet<>();
+            if (data.containsKey("debtTypes") && data.get("debtTypes") instanceof Set) {
+                debtTypes = (Set<String>) data.get("debtTypes");
+            }
+            
+            // Convert to account types for scoring
+            List<String> accountTypes = new ArrayList<>(debtTypes);
+            
+            // Initialize credit age based on employment if not directly provided
+            int creditAge = getIntValueSafely(data, "creditAge", Math.max(6, monthsEmployed));
+            
+            // Initialize lists for other factors
+            List<Date> inquiryDates = new ArrayList<>(); // Empty list as default
+            List<Integer> historicalScores = new ArrayList<>(); // Empty list as default
+            
+            // Core score calculation components
+            int paymentHistoryComponent = 0;     // 35% of score (0-300)
+            int creditUtilizationComponent = 0;  // 30% of score (0-300)
+            int creditAgeComponent = 0;          // 15% of score (0-150)
+            int creditMixComponent = 0;          // 10% of score (0-100)
+            int inquiriesComponent = 0;          // 10% of score (0-100)
+            int baseScore = 0;
+            
+            // 1. Payment History (35%)
+            String paymentRating = determinePaymentHistoryRating(paymentHistory);
+            switch (paymentRating) {
+                case "Excellent": paymentHistoryComponent = 300; break;
+                case "Good": paymentHistoryComponent = 260; break;
+                case "Fair": paymentHistoryComponent = 200; break;
+                case "Poor": paymentHistoryComponent = 120; break;
+                default: paymentHistoryComponent = 180; // Default to middle score
+            }
+            
+            // 2. Credit Utilization (30%) - Lower is better
+            double utilizationRatio = 0.0;
+            if (creditLimit > 0) {
+                utilizationRatio = (usedCredit / creditLimit) * 100; // Convert to percentage
+                
+                if (utilizationRatio <= 10) {
+                    creditUtilizationComponent = 300; // Excellent: 0-10%
+                } else if (utilizationRatio <= 30) {
+                    creditUtilizationComponent = 270; // Very good: 10-30%
+                } else if (utilizationRatio <= 50) {
+                    creditUtilizationComponent = 210; // Good: 30-50%
+                } else if (utilizationRatio <= 75) {
+                    creditUtilizationComponent = 150; // Fair: 50-75%
+                } else if (utilizationRatio < 100) {
+                    creditUtilizationComponent = 90;  // Poor: 75-100%
+                } else {
+                    creditUtilizationComponent = 30;  // Very poor: over 100%
+                }
+            } else {
+                // If no credit limit is available, assume moderate utilization
+                creditUtilizationComponent = 150;
+            }
+            
+            // 3. Credit Age (15%) - Longer is better
+            if (creditAge < 6) {
+                creditAgeComponent = 30;      // Very short history: <6 months
+            } else if (creditAge < 24) {
+                creditAgeComponent = 60;      // Short history: 6-24 months
+            } else if (creditAge < 60) {
+                creditAgeComponent = 100;     // Moderate history: 2-5 years
+            } else if (creditAge < 120) {
+                creditAgeComponent = 125;     // Good history: 5-10 years
+            } else {
+                creditAgeComponent = 150;     // Excellent history: 10+ years
+            }
+            
+            // 4. Credit Mix (10%) - More diverse is better
+            int differentAccountTypes = accountTypes.size();
+            if (differentAccountTypes >= 4) {
+                creditMixComponent = 100;     // Excellent mix: 4+ types
+            } else if (differentAccountTypes == 3) {
+                creditMixComponent = 85;      // Very good mix: 3 types
+            } else if (differentAccountTypes == 2) {
+                creditMixComponent = 70;      // Good mix: 2 types
+            } else if (differentAccountTypes == 1) {
+                creditMixComponent = 50;      // Fair mix: 1 type
+            } else {
+                creditMixComponent = 30;      // Poor mix: 0 types
+            }
+            
+            // 5. New Credit Inquiries (10%) - Fewer is better
+            // Since we don't have actual inquiry data, we'll use a default good score here
+            inquiriesComponent = 90;          // Assume good (few inquiries)
+            
+            // 6. Employment Status and Income Stability Bonus
+            int employmentBonus = 0;
+            if (employmentStatus.equalsIgnoreCase("Full-time") && monthsEmployed >= 24) {
+                employmentBonus = 40;         // Long-term full-time employment bonus
+            } else if (employmentStatus.equalsIgnoreCase("Full-time") && monthsEmployed >= 12) {
+                employmentBonus = 25;         // Full-time employment bonus
+            } else if (employmentStatus.equalsIgnoreCase("Part-time") && monthsEmployed >= 12) {
+                employmentBonus = 15;         // Part-time employment bonus
+            } else if (monthsEmployed >= 36) {
+                employmentBonus = 30;         // Long-term employment bonus (any type)
+            } else if (monthsEmployed >= 24) {
+                employmentBonus = 20;         // Medium-term employment bonus (any type)
+            }
+            
+            // 7. Assets to Debt Ratio Bonus
+            int assetBonus = 0;
+            if (debt > 0 && assets > 0) {
+                double assetToDebtRatio = assets / debt;
+                if (assetToDebtRatio > 5) {
+                    assetBonus = 30;          // Excellent asset coverage
+                } else if (assetToDebtRatio > 2) {
+                    assetBonus = 20;          // Good asset coverage
+                } else if (assetToDebtRatio > 1) {
+                    assetBonus = 10;          // Fair asset coverage
+                }
+            } else if (assets > 20000) {      // Good assets, no debt
+                assetBonus = 30;
+            }
+            
+            // 8. Calculate DTI (Debt-to-Income) Ratio Component
+            int dtiComponent = 0;
+            double loanRequest = getDoubleValueSafely(data, "loanRequest", 10000.0);
+            double dti = dtiScore(income, expenses, debt, loanRequest);
+            
+            if (dti < 0.25) {
+                dtiComponent = 40;            // Excellent DTI: below 25%
+            } else if (dti < 0.36) {
+                dtiComponent = 30;            // Very good DTI: 25-36%
+            } else if (dti < 0.43) {
+                dtiComponent = 20;            // Good DTI: 36-43%
+            } else if (dti < 0.5) {
+                dtiComponent = 10;            // Fair DTI: 43-50%
+            } else {
+                dtiComponent = 0;             // Poor DTI: above 50%
+            }
+            
+            // Calculate base score from all components
+            baseScore = paymentHistoryComponent + 
+                        creditUtilizationComponent + 
+                        creditAgeComponent + 
+                        creditMixComponent + 
+                        inquiriesComponent + 
+                        employmentBonus + 
+                        assetBonus + 
+                        dtiComponent;
+            
+            // Normalize to 300-900 range (common credit score range)
+            int minPossibleTotal = 120 + 30 + 30 + 30 + 0 + 0 + 0 + 0;     // 210 (worst case)
+            int maxPossibleTotal = 300 + 300 + 150 + 100 + 100 + 40 + 30 + 40; // 1060 (best case)
+            int range = maxPossibleTotal - minPossibleTotal;
+            
+            int normalizedScore = MIN_CREDIT_SCORE + 
+                    (int)((baseScore - minPossibleTotal) * (MAX_CREDIT_SCORE - MIN_CREDIT_SCORE) / (double)range);
+            
+            // Ensure score is within valid range
+            int finalScore = Math.max(MIN_CREDIT_SCORE, Math.min(normalizedScore, MAX_CREDIT_SCORE));
+            
+            // Log calculation details
+            System.out.println("Credit Score Calculation Details:");
+            System.out.println("Payment History: " + paymentHistory + " (Rating: " + paymentRating + ", Score: " + paymentHistoryComponent + ")");
+            System.out.println("Credit Utilization: " + utilizationRatio + "% (Score: " + creditUtilizationComponent + ")");
+            System.out.println("Credit Age: " + creditAge + " months (Score: " + creditAgeComponent + ")");
+            System.out.println("Credit Mix: " + differentAccountTypes + " types (Score: " + creditMixComponent + ")");
+            System.out.println("Employment: " + employmentStatus + ", " + monthsEmployed + " months (Bonus: " + employmentBonus + ")");
+            System.out.println("Asset/Debt: Assets=" + assets + ", Debt=" + debt + " (Bonus: " + assetBonus + ")");
+            System.out.println("DTI Ratio: " + (dti * 100) + "% (Score: " + dtiComponent + ")");
+            System.out.println("Base Score: " + baseScore);
+            System.out.println("Final Score: " + finalScore);
+            
+            return finalScore;
+            
+        } catch (Exception e) {
+            System.out.println("Error calculating credit score: " + e.getMessage());
+            e.printStackTrace();
+            return 650; // Return a moderate default score on error
+        }
+    }
+    
+    /**
+     * Helper method to safely extract string values from a map
+     */
+    private static String getStringValueSafely(Map<String, Object> data, String key, String defaultValue) {
+        if (data == null || !data.containsKey(key) || data.get(key) == null) {
+            System.out.println("Warning: Missing or null value for key: " + key + ", using default: " + defaultValue);
+            return defaultValue;
         }
         
-        // First check for used_credit key (preferred format)
-        Double usedCredit = null;
-        if (data.containsKey("used_credit")) {
-            usedCredit = getDoubleValueSafely(data, "used_credit", 0.0);
-            System.out.println("Found used_credit key with value: " + usedCredit);
-        } 
-        // Then check usedCredit (alternative format)
-        else if (data.containsKey("usedCredit")) {
-            usedCredit = getDoubleValueSafely(data, "usedCredit", 0.0);
-            System.out.println("Found usedCredit key with value: " + usedCredit);
+        Object value = data.get(key);
+        if (value instanceof String) {
+            return (String) value;
+        } else {
+            return String.valueOf(value);
         }
-        // Finally check creditTotalUsage (another alternative format)
-        else if (data.containsKey("creditTotalUsage")) {
-            usedCredit = getDoubleValueSafely(data, "creditTotalUsage", 0.0);
-            System.out.println("Found creditTotalUsage key with value: " + usedCredit);
-        }
-        else {
-            System.out.println("No key found for credit usage, using default 0.0");
-            usedCredit = 0.0;
-        }
-        
-        // First check for credit_limit key (preferred format)
-        Double creditLimit = null;
-        if (data.containsKey("credit_limit")) {
-            creditLimit = getDoubleValueSafely(data, "credit_limit", 1000.0);
-            System.out.println("Found credit_limit key with value: " + creditLimit);
-        } 
-        // Then check creditLimit (alternative format)
-        else if (data.containsKey("creditLimit")) {
-            creditLimit = getDoubleValueSafely(data, "creditLimit", 1000.0);
-            System.out.println("Found creditLimit key with value: " + creditLimit);
-        }
-        // Finally check currentCreditLimit (another alternative format)
-        else if (data.containsKey("currentCreditLimit")) {
-            creditLimit = getDoubleValueSafely(data, "currentCreditLimit", 1000.0);
-            System.out.println("Found currentCreditLimit key with value: " + creditLimit);
-        }
-        else {
-            System.out.println("No key found for credit limit, using default 1000.0");
-            creditLimit = 1000.0;
-        }
-        
-        // Similar check for payment history
-        String paymentHistory = null;
-        if (data.containsKey("payment_history")) {
-            paymentHistory = data.get("payment_history") != null ? (String) data.get("payment_history") : "On-time";
-            System.out.println("Found payment_history key with value: " + paymentHistory);
-        }
-        else if (data.containsKey("paymentHistory")) {
-            paymentHistory = data.get("paymentHistory") != null ? (String) data.get("paymentHistory") : "On-time";
-            System.out.println("Found paymentHistory key with value: " + paymentHistory);
-        }
-        else {
-            System.out.println("No key found for payment history, using default 'On-time'");
-            paymentHistory = "On-time";
-        }
-        
-        // Convert debtTypes to accountTypes if available
-        List<String> accountTypes = new ArrayList<>();
-        if (data.containsKey("debt_types") && data.get("debt_types") instanceof Set) {
-            Set<String> debtTypes = (Set<String>) data.get("debt_types");
-            accountTypes.addAll(debtTypes);
-            System.out.println("Found debt_types key with " + debtTypes.size() + " items");
-        }
-        else if (data.containsKey("debtTypes") && data.get("debtTypes") instanceof Set) {
-            Set<String> debtTypes = (Set<String>) data.get("debtTypes");
-            accountTypes.addAll(debtTypes);
-            System.out.println("Found debtTypes key with " + debtTypes.size() + " items");
-        }
-        
-        // Credit inquiries - if available
-        List<Date> inquiryDates = new ArrayList<>();
-        if (data.containsKey("inquiry_dates") && data.get("inquiry_dates") instanceof List) {
-            inquiryDates = (List<Date>) data.get("inquiry_dates");
-        }
-        
-        // Historical scores - if available
-        List<Integer> historicalScores = new ArrayList<>();
-        if (data.containsKey("historical_scores") && data.get("historical_scores") instanceof List) {
-            historicalScores = (List<Integer>) data.get("historical_scores");
-        }
-        
-        // Credit age - if available, otherwise estimate from employment
-        int creditAge = 0;
-        if (data.containsKey("credit_age") && data.get("credit_age") instanceof Number) {
-            creditAge = ((Number) data.get("credit_age")).intValue();
-        } else if (data.containsKey("monthsEmployed") && data.get("monthsEmployed") instanceof Number) {
-            // Estimate credit age based on employment duration if not available
-            creditAge = ((Number) data.get("monthsEmployed")).intValue();
-        }
-        
-        System.out.println("About to call calculateComprehensiveScore with: " +
-                          "paymentHistory=" + paymentHistory + 
-                          ", usedCredit=" + usedCredit + 
-                          ", creditLimit=" + creditLimit + 
-                          ", accountTypes=" + accountTypes.size() + 
-                          ", inquiryDates=" + inquiryDates.size() + 
-                          ", historicalScores=" + historicalScores.size() + 
-                          ", creditAge=" + creditAge);
-        
-        // Use the comprehensive scoring method
-        return calculateComprehensiveScore(
-            paymentHistory,
-            usedCredit,
-            creditLimit,
-            accountTypes,
-            inquiryDates,
-            historicalScores,
-            creditAge
-        );
     }
 
     /**
+     * Helper method to safely extract integer values from a map
+     */
+    private static int getIntValueSafely(Map<String, Object> data, String key, int defaultValue) {
+        if (data == null || !data.containsKey(key) || data.get(key) == null) {
+            System.out.println("Warning: Missing or null value for key: " + key + ", using default: " + defaultValue);
+            return defaultValue;
+        }
+        
+        Object value = data.get(key);
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        } else if (value instanceof String) {
+            try {
+                return Integer.parseInt((String) value);
+            } catch (NumberFormatException e) {
+                System.out.println("Warning: Could not parse string value for key: " + key + ", using default: " + defaultValue);
+                return defaultValue;
+            }
+        } else if (value instanceof Boolean) {
+            return ((Boolean) value) ? 1 : 0;
+        }
+        
+        System.out.println("Warning: Unexpected type for key: " + key + " (" + value.getClass().getName() + "), using default: " + defaultValue);
+        return defaultValue;
+    }
+    
+    /**
      * Helper method to safely extract double values from a map
-     * @param data The map containing the data
-     * @param key The key to extract
-     * @param defaultValue The default value to use if the key is missing or null
-     * @return The double value or the default
      */
     private static double getDoubleValueSafely(Map<String, Object> data, String key, double defaultValue) {
         if (data == null || !data.containsKey(key) || data.get(key) == null) {
@@ -402,6 +540,11 @@ public class CanadianCreditScoringSystem {
     }
 
     public static boolean isLoanRestricted(String loanType, String employmentStatus, int months) {
+        // If employment is 24+ months, no restrictions regardless of status
+        if (months >= 24) {
+            return false;
+        }
+        
         if (employmentStatus.equals("Student") && months < 12) {
             return loanType.equals("Mortgage") || loanType.equals("Car Loan") || loanType.equals("Personal Loan");
         }

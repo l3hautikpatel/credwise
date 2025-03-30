@@ -412,87 +412,134 @@ public class LoanApplicationService {
         System.out.println("Preparing credit data from financial info ID: " + 
                           (financialInfo != null ? financialInfo.getId() : "null"));
         
-        // Loan details
-        creditData.put("loanType", request.getLoanDetails().getProductType());
-        creditData.put("requestedAmount", request.getLoanDetails().getRequestedAmount().doubleValue());
-        creditData.put("requestedTermMonths", request.getLoanDetails().getRequestedTermMonths());
-        
-        // Financial info - make sure we have values for all fields, even if null
-        // Also map to the keys expected by CanadianCreditScoringSystem
         try {
-            creditData.put("income", financialInfo.getMonthlyIncome().doubleValue());
-            creditData.put("expenses", financialInfo.getMonthlyExpenses().doubleValue());
-            creditData.put("debt", financialInfo.getEstimatedDebts().doubleValue());
-            creditData.put("loanRequest", request.getLoanDetails().getRequestedAmount().doubleValue());
-            creditData.put("used_credit", financialInfo.getCreditTotalUsage().doubleValue());
-            creditData.put("credit_limit", financialInfo.getCurrentCreditLimit().doubleValue());
+            // First, get loan details - no null checks needed as these come from the request
+            creditData.put("loanType", request.getLoanDetails().getProductType());
+            creditData.put("loanRequest", safeDoubleValue(request.getLoanDetails().getRequestedAmount()));
+            creditData.put("requestedAmount", safeDoubleValue(request.getLoanDetails().getRequestedAmount()));
+            creditData.put("tenure", request.getLoanDetails().getRequestedTermMonths());
+            creditData.put("requestedTermMonths", request.getLoanDetails().getRequestedTermMonths());
             
-            // Optional fields with null checks
-            creditData.put("totalDebts", financialInfo.getTotalDebts() != null ? 
-                          financialInfo.getTotalDebts().doubleValue() : 0.0);
-            creditData.put("creditUtilization", financialInfo.getCreditUtilization() != null ? 
-                          financialInfo.getCreditUtilization().doubleValue() : 0.0);
-            creditData.put("totalAssets", financialInfo.getTotalAssets() != null ? 
-                          financialInfo.getTotalAssets().doubleValue() : 0.0);
+            // Then extract financial info with null checks
+            if (financialInfo != null) {
+                // Core financial data
+                creditData.put("monthlyIncome", safeDoubleValue(financialInfo.getMonthlyIncome()));
+                creditData.put("income", safeDoubleValue(financialInfo.getMonthlyIncome()));
+                
+                creditData.put("monthlyExpenses", safeDoubleValue(financialInfo.getMonthlyExpenses()));
+                creditData.put("expenses", safeDoubleValue(financialInfo.getMonthlyExpenses()));
+                
+                creditData.put("estimatedDebts", safeDoubleValue(financialInfo.getEstimatedDebts()));
+                creditData.put("debt", safeDoubleValue(financialInfo.getEstimatedDebts()));
+                
+                // Credit usage and limits
+                creditData.put("creditTotalUsage", safeDoubleValue(financialInfo.getCreditTotalUsage()));
+                creditData.put("usedCredit", safeDoubleValue(financialInfo.getCreditTotalUsage()));
+                
+                creditData.put("currentCreditLimit", safeDoubleValue(financialInfo.getCurrentCreditLimit()));
+                creditData.put("creditLimit", safeDoubleValue(financialInfo.getCurrentCreditLimit()));
+                
+                // Additional financial data
+                creditData.put("totalDebts", safeDoubleValue(financialInfo.getTotalDebts()));
+                creditData.put("creditUtilization", safeDoubleValue(financialInfo.getCreditUtilization()));
+                creditData.put("totalAssets", safeDoubleValue(financialInfo.getTotalAssets()));
+                creditData.put("assets", safeDoubleValue(financialInfo.getTotalAssets()));
+                
+                // Process payment history
+                String paymentHistory = analyzePaymentHistory(financialInfo.getExistingDebts());
+                creditData.put("paymentHistory", paymentHistory);
+                
+                // Calculate employment data
+                List<EmploymentHistory> employments = financialInfo.getEmploymentDetails();
+                if (employments != null && !employments.isEmpty()) {
+                    // Get total employment duration
+                    int totalMonthsEmployed = employments.stream()
+                            .mapToInt(EmploymentHistory::getDurationMonths)
+                            .sum();
+                    creditData.put("monthsEmployed", totalMonthsEmployed);
+                    
+                    // Determine current employment status
+                    String primaryEmploymentType = employments.stream()
+                            .filter(e -> e.getEndDate() == null)
+                            .findFirst()
+                            .map(EmploymentHistory::getEmploymentType)
+                            .orElse(employments.get(0).getEmploymentType());
+                    creditData.put("employmentStatus", primaryEmploymentType);
+                    
+                    // Estimate credit age based on employment duration
+                    // Assume credit history is roughly aligned with employment
+                    creditData.put("creditAge", Math.max(totalMonthsEmployed, 6));
+                } else {
+                    // Default values if no employment data
+                    creditData.put("monthsEmployed", 0);
+                    creditData.put("employmentStatus", "Unemployed");
+                    creditData.put("creditAge", 6); // Minimum credit age
+                }
+                
+                // Extract debt types
+                Set<String> debtTypes = new HashSet<>();
+                List<Debt> debts = financialInfo.getExistingDebts();
+                if (debts != null && !debts.isEmpty()) {
+                    debtTypes = debts.stream()
+                            .map(Debt::getDebtType)
+                            .filter(type -> type != null && !type.isEmpty())
+                            .collect(Collectors.toSet());
+                    
+                    // If debt types are empty but debt exists, add generic type
+                    if (debtTypes.isEmpty() && safeDoubleValue(financialInfo.getEstimatedDebts()) > 0) {
+                        debtTypes.add("Personal Loan");
+                    }
+                }
+                creditData.put("debtTypes", debtTypes);
+                
+                // Bank account info
+                creditData.put("bankAccounts", financialInfo.getBankAccounts() != null ? 
+                               financialInfo.getBankAccounts() : 1);
+            } else {
+                // Provide reasonable defaults if financial info is missing
+                System.out.println("WARNING: Financial info is null, using default values");
+                creditData.put("income", 3000.0);
+                creditData.put("expenses", 1500.0);
+                creditData.put("debt", 0.0);
+                creditData.put("usedCredit", 0.0);
+                creditData.put("creditLimit", 1000.0);
+                creditData.put("paymentHistory", "On-time");
+                creditData.put("employmentStatus", "Unemployed");
+                creditData.put("monthsEmployed", 0);
+                creditData.put("creditAge", 6);
+                creditData.put("assets", 0.0);
+                creditData.put("bankAccounts", 1);
+                creditData.put("debtTypes", new HashSet<>());
+            }
         } catch (Exception e) {
-            System.out.println("Error converting financial values: " + e.getMessage());
-            // Provide default values if exception occurs
-            creditData.put("income", 1000.0);
-            creditData.put("expenses", 500.0);
-            creditData.put("debt", 0.0);
-            creditData.put("loanRequest", request.getLoanDetails().getRequestedAmount().doubleValue());
-            creditData.put("used_credit", 0.0);
-            creditData.put("credit_limit", 1000.0);
-        }
-        
-        // Analyze payment history from debt details
-        String paymentHistory = analyzePaymentHistory(financialInfo.getExistingDebts());
-        creditData.put("payment_history", paymentHistory); // This matches the key in calculateCreditScore
-        creditData.put("paymentHistory", paymentHistory);  // Keep this for backward compatibility
-        
-        // Calculate total employment duration from all employment entries
-        int totalMonthsEmployed = 0;
-        String primaryEmploymentType = "Unemployed";
-        
-        List<EmploymentHistory> employments = financialInfo.getEmploymentDetails();
-        if (employments != null && !employments.isEmpty()) {
-            // Sum up months employed across all jobs
-            totalMonthsEmployed = employments.stream()
-                    .mapToInt(EmploymentHistory::getDurationMonths)
-                    .sum();
+            System.out.println("Error preparing credit data: " + e.getMessage());
+            e.printStackTrace();
             
-            // Use the most recent employment type as primary
-            primaryEmploymentType = employments.stream()
-                    .filter(e -> e.getEndDate() == null) // Current job
-                    .findFirst()
-                    .map(EmploymentHistory::getEmploymentType)
-                    .orElse(employments.get(0).getEmploymentType());
+            // Ensure minimum required data is present for calculation
+            if (!creditData.containsKey("loanRequest")) {
+                creditData.put("loanRequest", safeDoubleValue(request.getLoanDetails().getRequestedAmount()));
+            }
+            if (!creditData.containsKey("income")) creditData.put("income", 3000.0);
+            if (!creditData.containsKey("expenses")) creditData.put("expenses", 1500.0);
+            if (!creditData.containsKey("debt")) creditData.put("debt", 0.0);
+            if (!creditData.containsKey("usedCredit")) creditData.put("usedCredit", 0.0);
+            if (!creditData.containsKey("creditLimit")) creditData.put("creditLimit", 1000.0);
+            if (!creditData.containsKey("paymentHistory")) creditData.put("paymentHistory", "On-time");
+            if (!creditData.containsKey("employmentStatus")) creditData.put("employmentStatus", "Unemployed");
+            if (!creditData.containsKey("monthsEmployed")) creditData.put("monthsEmployed", 0);
         }
-        
-        creditData.put("employmentStatus", primaryEmploymentType);
-        creditData.put("monthsEmployed", totalMonthsEmployed);
-        
-        // Bank accounts - default to 1 if not available
-        creditData.put("bankAccounts", 1);
-        
-        // Extract debt types from existing debts
-        Set<String> debtTypes = new HashSet<>();
-        List<Debt> debts = financialInfo.getExistingDebts();
-        if (debts != null) {
-            debtTypes = debts.stream()
-                    .map(Debt::getDebtType)
-                    .collect(Collectors.toSet());
-        }
-        creditData.put("debt_types", debtTypes); // Match key in calculateCreditScore
-        creditData.put("debtTypes", debtTypes);  // Keep for backward compatibility
-        
-        // Add tenure for interest calculation
-        creditData.put("tenure", request.getLoanDetails().getRequestedTermMonths());
         
         // Print out what we're sending to help debug
         System.out.println("Prepared credit data: " + creditData);
         
         return creditData;
+    }
+    
+    /**
+     * Safely convert BigDecimal to double with null check
+     */
+    private double safeDoubleValue(BigDecimal value) {
+        return value != null ? value.doubleValue() : 0.0;
     }
 
     /**

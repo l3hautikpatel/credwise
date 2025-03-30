@@ -54,6 +54,8 @@ public class FinancialInfo {
     @Column(name = "total_assets")
     private BigDecimal totalAssets;
 
+    @Column(name = "bank_accounts")
+    private Integer bankAccounts;
 
     @Column(name = "last_updated", nullable = false)
     private LocalDateTime lastUpdated;
@@ -207,6 +209,13 @@ public class FinancialInfo {
         this.totalAssets = totalAssets;
     }
 
+    public Integer getBankAccounts() {
+        return bankAccounts;
+    }
+
+    public void setBankAccounts(Integer bankAccounts) {
+        this.bankAccounts = bankAccounts;
+    }
 
     public BigDecimal getCreditUtilization() {
         return creditUtilization;

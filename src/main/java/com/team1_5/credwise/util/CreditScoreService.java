@@ -170,105 +170,161 @@ public class CreditScoreService {
         // Print what we received to help debug
         System.out.println("prepareProfileData received: " + creditData);
         
-        // Extract and convert values with appropriate defaults as needed
-        String loanType = getStringValue(creditData, "loanType", "Personal Loan");
-        
-        // Income and expense data - check various possible field names
-        double income = getDoubleValue(creditData, "income", 0.0);
-        if (income == 0.0) {
-            income = getDoubleValue(creditData, "monthlyIncome", 0.0);
-        }
-        
-        double expenses = getDoubleValue(creditData, "expenses", 0.0);
-        if (expenses == 0.0) {
-            expenses = getDoubleValue(creditData, "monthlyExpenses", 0.0);
-        }
-        
-        double debt = getDoubleValue(creditData, "debt", 0.0);
-        if (debt == 0.0) {
-            debt = getDoubleValue(creditData, "estimatedDebts", 0.0);
-        }
-        
-        double loanRequest = getDoubleValue(creditData, "loanRequest", 0.0);
-        if (loanRequest == 0.0) {
-            loanRequest = getDoubleValue(creditData, "requestedAmount", 0.0);
-        }
-        
-        int tenure = getIntValue(creditData, "tenure", 12);
-        if (tenure == 12) { // Only default
-            tenure = getIntValue(creditData, "requestedTermMonths", 12);
-        }
-        
-        // Try both keys for payment history
-        String paymentHistory = getStringValue(creditData, "payment_history", null);
-        if (paymentHistory == null) {
-            paymentHistory = getStringValue(creditData, "paymentHistory", "On-time");
-        }
-        
-        // Try both keys for credit usage
-        double usedCredit = getDoubleValue(creditData, "used_credit", 0.0);
-        if (usedCredit == 0.0) {
-            usedCredit = getDoubleValue(creditData, "creditTotalUsage", 0.0);
-        }
-        
-        // Try both keys for credit limit
-        double creditLimit = getDoubleValue(creditData, "credit_limit", 1000.0); // Avoid division by zero
-        if (creditLimit == 1000.0 && creditData.containsKey("currentCreditLimit")) {
-            creditLimit = getDoubleValue(creditData, "currentCreditLimit", 1000.0);
-        }
-        
-        // For employment - check multiple possible keys
-        String employmentStatus = getStringValue(creditData, "employmentStatus", null);
-        if (employmentStatus == null) {
-            employmentStatus = getStringValue(creditData, "employmentType", "Full-time");
-        }
-        
-        int monthsEmployed = getIntValue(creditData, "monthsEmployed", 0);
-        if (monthsEmployed == 0 && creditData.containsKey("employmentDurationMonths")) {
-            monthsEmployed = getIntValue(creditData, "employmentDurationMonths", 0);
-        }
-        
-        // For assets/bank accounts
-        double assets = getDoubleValue(creditData, "totalAssets", 0.0);
-        int bankAccounts = getIntValue(creditData, "bankAccounts", 1);
-        
-        // Create debt types set from either key (default to empty set if not available)
-        Set<String> debtTypes = new HashSet<>();
-        try {
-            if (creditData.containsKey("debt_types")) {
-                Object debtTypesObj = creditData.get("debt_types");
-                if (debtTypesObj instanceof Set) {
-                    debtTypes = (Set<String>) debtTypesObj;
-                }
-            } else if (creditData.containsKey("debtTypes")) {
-                Object debtTypesObj = creditData.get("debtTypes");
-                if (debtTypesObj instanceof Set) {
-                    debtTypes = (Set<String>) debtTypesObj;
-                }
-            }
-        } catch (Exception e) {
-            System.out.println("Error processing debt types: " + e.getMessage());
-        }
-        
-        // Create and populate the profile data map
         Map<String, Object> profileData = new java.util.HashMap<>();
-        profileData.put("loanType", loanType);
-        profileData.put("income", income);
-        profileData.put("expenses", expenses);
-        profileData.put("debt", debt);
-        profileData.put("loanRequest", loanRequest);
-        profileData.put("tenure", tenure);
-        profileData.put("paymentHistory", paymentHistory);
-        profileData.put("usedCredit", usedCredit);
-        profileData.put("creditLimit", creditLimit);
-        profileData.put("employmentStatus", employmentStatus);
-        profileData.put("monthsEmployed", monthsEmployed);
-        profileData.put("assets", assets);
-        profileData.put("bankAccounts", bankAccounts);
-        profileData.put("debtTypes", debtTypes);
         
-        // Print the prepared data for debugging
-        System.out.println("prepareProfileData output: " + profileData);
+        try {
+            // Extract and convert values with appropriate defaults as needed
+            String loanType = getStringValue(creditData, "loanType", 
+                              getStringValue(creditData, "loanPurpose", "Personal Loan"));
+            
+            // Income: check multiple possible field names
+            double income = getDoubleValue(creditData, "income", 0.0);
+            if (income == 0.0) {
+                income = getDoubleValue(creditData, "monthlyIncome", 
+                          getDoubleValue(creditData, "annualIncome", 0.0) / 12);
+            }
+            
+            // Expenses: check multiple possible field names
+            double expenses = getDoubleValue(creditData, "expenses", 0.0);
+            if (expenses == 0.0) {
+                expenses = getDoubleValue(creditData, "monthlyExpenses", 
+                            getDoubleValue(creditData, "totalMonthlyExpenses", 0.0));
+            }
+            
+            // Debt: check multiple possible field names
+            double debt = getDoubleValue(creditData, "debt", 0.0);
+            if (debt == 0.0) {
+                debt = getDoubleValue(creditData, "estimatedDebts", 
+                        getDoubleValue(creditData, "totalDebt", 0.0));
+            }
+            
+            // Loan request amount: check multiple possible field names
+            double loanRequest = getDoubleValue(creditData, "loanRequest", 0.0);
+            if (loanRequest == 0.0) {
+                loanRequest = getDoubleValue(creditData, "requestedAmount", 
+                              getDoubleValue(creditData, "loanAmount", 0.0));
+            }
+            
+            // Tenure: check multiple possible field names
+            int tenure = getIntValue(creditData, "tenure", 12);
+            if (tenure == 12) { // Check if still default
+                tenure = getIntValue(creditData, "requestedTermMonths", 
+                         getIntValue(creditData, "loanTermMonths", 12));
+            }
+            
+            // Payment history: check multiple possible field names
+            String paymentHistory = getStringValue(creditData, "payment_history", null);
+            if (paymentHistory == null) {
+                paymentHistory = getStringValue(creditData, "paymentHistory", "On-time");
+            }
+            
+            // Used credit: check multiple possible field names
+            double usedCredit = getDoubleValue(creditData, "used_credit", 0.0);
+            if (usedCredit == 0.0) {
+                usedCredit = getDoubleValue(creditData, "usedCredit", 
+                             getDoubleValue(creditData, "creditTotalUsage", 0.0));
+            }
+            
+            // Credit limit: check multiple possible field names
+            double creditLimit = getDoubleValue(creditData, "credit_limit", 0.0);
+            if (creditLimit == 0.0) {
+                creditLimit = getDoubleValue(creditData, "creditLimit", 
+                              getDoubleValue(creditData, "currentCreditLimit", 1000.0));
+            }
+            // Ensure credit limit is never zero to prevent division by zero
+            creditLimit = Math.max(creditLimit, 1000.0);
+            
+            // Employment status: check multiple possible field names
+            String employmentStatus = getStringValue(creditData, "employmentStatus", null);
+            if (employmentStatus == null) {
+                employmentStatus = getStringValue(creditData, "employmentType", "Full-time");
+            }
+            
+            // Months employed: check multiple possible field names
+            int monthsEmployed = getIntValue(creditData, "monthsEmployed", 0);
+            if (monthsEmployed == 0) {
+                monthsEmployed = getIntValue(creditData, "employmentDurationMonths", 
+                                getIntValue(creditData, "yearsEmployed", 0) * 12);
+            }
+            
+            // Assets: check multiple possible field names
+            double assets = getDoubleValue(creditData, "totalAssets", 
+                            getDoubleValue(creditData, "assets", 0.0));
+            
+            // Bank accounts
+            int bankAccounts = getIntValue(creditData, "bankAccounts", 
+                              getIntValue(creditData, "numberOfBankAccounts", 1));
+            
+            // Credit age - estimate from employment if not available
+            int creditAge = getIntValue(creditData, "creditAge", 
+                           getIntValue(creditData, "creditHistoryMonths", Math.max(6, monthsEmployed)));
+            
+            // Create debt types set from either key (default to empty set if not available)
+            Set<String> debtTypes = new HashSet<>();
+            try {
+                if (creditData.containsKey("debt_types") && creditData.get("debt_types") != null) {
+                    Object debtTypesObj = creditData.get("debt_types");
+                    if (debtTypesObj instanceof Set) {
+                        debtTypes = (Set<String>) debtTypesObj;
+                    } else if (debtTypesObj instanceof List) {
+                        debtTypes.addAll((List<String>) debtTypesObj);
+                    }
+                } else if (creditData.containsKey("debtTypes") && creditData.get("debtTypes") != null) {
+                    Object debtTypesObj = creditData.get("debtTypes");
+                    if (debtTypesObj instanceof Set) {
+                        debtTypes = (Set<String>) debtTypesObj;
+                    } else if (debtTypesObj instanceof List) {
+                        debtTypes.addAll((List<String>) debtTypesObj);
+                    }
+                }
+                
+                // If no debt types found but debt > 0, add a generic debt type
+                if (debtTypes.isEmpty() && debt > 0) {
+                    debtTypes.add("Personal Loan");
+                }
+            } catch (Exception e) {
+                System.out.println("Error processing debt types: " + e.getMessage());
+                // Add fallback debt type
+                debtTypes.add("Other");
+            }
+            
+            // Create and populate the profile data map with all keys the Canadian system expects
+            profileData.put("loanType", loanType);
+            profileData.put("income", income);
+            profileData.put("expenses", expenses);
+            profileData.put("debt", debt);
+            profileData.put("loanRequest", loanRequest);
+            profileData.put("tenure", tenure);
+            profileData.put("paymentHistory", paymentHistory);
+            profileData.put("usedCredit", usedCredit);
+            profileData.put("creditLimit", creditLimit);
+            profileData.put("employmentStatus", employmentStatus);
+            profileData.put("monthsEmployed", monthsEmployed);
+            profileData.put("assets", assets);
+            profileData.put("bankAccounts", bankAccounts);
+            profileData.put("debtTypes", debtTypes);
+            profileData.put("creditAge", creditAge);
+            
+            // Print the prepared data for debugging
+            System.out.println("prepareProfileData output: " + profileData);
+            
+        } catch (Exception e) {
+            System.out.println("Error in prepareProfileData: " + e.getMessage());
+            e.printStackTrace();
+            
+            // Ensure minimal required data is present
+            if (!profileData.containsKey("income")) profileData.put("income", 3000.0);
+            if (!profileData.containsKey("expenses")) profileData.put("expenses", 1500.0);
+            if (!profileData.containsKey("debt")) profileData.put("debt", 0.0);
+            if (!profileData.containsKey("loanRequest")) profileData.put("loanRequest", 10000.0);
+            if (!profileData.containsKey("paymentHistory")) profileData.put("paymentHistory", "On-time");
+            if (!profileData.containsKey("usedCredit")) profileData.put("usedCredit", 0.0);
+            if (!profileData.containsKey("creditLimit")) profileData.put("creditLimit", 1000.0);
+            if (!profileData.containsKey("employmentStatus")) profileData.put("employmentStatus", "Full-time");
+            if (!profileData.containsKey("monthsEmployed")) profileData.put("monthsEmployed", 12);
+            
+            System.out.println("Using fallback profile data: " + profileData);
+        }
         
         return profileData;
     }
