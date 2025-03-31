@@ -538,24 +538,76 @@ public class LoanApplicationService {
         creditData.put("monthlyIncome", financialInfo.getMonthlyIncome());
         creditData.put("monthlyExpenses", financialInfo.getMonthlyExpenses());
         creditData.put("totalDebts", financialInfo.getEstimatedDebts());
+        
+        // Add credit usage and limits - ensure we're passing the actual credit usage
         creditData.put("creditUsage", financialInfo.getCreditTotalUsage());
         creditData.put("creditLimit", financialInfo.getCurrentCreditLimit());
-        creditData.put("paymentHistory", "On-time"); // Default value
+        
+        // Explicitly set usedCredit to ensure credit utilization calculation works correctly
+        creditData.put("usedCredit", financialInfo.getCreditTotalUsage());
+        
+        // Get payment history from debts or use default
+        if (financialInfo.getExistingDebts() != null && !financialInfo.getExistingDebts().isEmpty()) {
+            creditData.put("paymentHistory", analyzePaymentHistory(financialInfo.getExistingDebts()));
+        } else {
+            creditData.put("paymentHistory", "On-time"); // Default value
+        }
         
         // Add employment data from current employment
         List<EmploymentHistory> employmentDetails = financialInfo.getEmploymentDetails();
         if (employmentDetails != null && !employmentDetails.isEmpty()) {
-            // Get current employment (one with no end date)
+            // Get current employment (one with no end date) or most recent
             EmploymentHistory currentEmployment = employmentDetails.stream()
                 .filter(e -> e.getEndDate() == null)
                 .findFirst()
-                .orElse(employmentDetails.get(0)); // If no current employment, use the most recent one
+                .orElse(employmentDetails.get(0));
             
-            creditData.put("employmentStatus", currentEmployment.getEmploymentType());
-            creditData.put("monthsEmployed", currentEmployment.getDurationMonths());
+            // Map employment status correctly - ensure it's one of the valid values expected by scoring system
+            String employmentType = currentEmployment.getEmploymentType();
+            if (employmentType != null && !employmentType.isEmpty()) {
+                // Map to standard employment status values
+                if (employmentType.equalsIgnoreCase("Full-time") || 
+                    employmentType.equalsIgnoreCase("Part-time") ||
+                    employmentType.equalsIgnoreCase("Self-employed")) {
+                    creditData.put("employmentStatus", employmentType);
+                } else if (employmentType.equalsIgnoreCase("Contract") ||
+                           employmentType.equalsIgnoreCase("Temporary")) {
+                    creditData.put("employmentStatus", "Part-time"); // Map contract to part-time for scoring
+                } else {
+                    creditData.put("employmentStatus", "Unemployed"); // Default for unknown types
+                }
+            } else {
+                creditData.put("employmentStatus", "Unemployed");
+            }
+            
+            // Get months employed
+            Integer durationMonths = currentEmployment.getDurationMonths();
+            if (durationMonths != null && durationMonths > 0) {
+                creditData.put("monthsEmployed", durationMonths);
+                System.out.println("Using employment duration: " + durationMonths + " months");
+            } else {
+                // Calculate from dates if duration is not directly available
+                if (currentEmployment.getStartDate() != null) {
+                    LocalDate endDate = currentEmployment.getEndDate() != null ? 
+                                        currentEmployment.getEndDate() : LocalDate.now();
+                    int calculatedMonths = calculateMonthsBetween(currentEmployment.getStartDate(), endDate);
+                    creditData.put("monthsEmployed", calculatedMonths);
+                    System.out.println("Calculated employment duration from dates: " + calculatedMonths + " months");
+                } else {
+                    creditData.put("monthsEmployed", 0);
+                    System.out.println("No employment duration or dates available, using 0 months");
+                }
+            }
         } else {
             creditData.put("employmentStatus", "Unemployed");
             creditData.put("monthsEmployed", 0);
+            System.out.println("No employment details found, using defaults: Unemployed, 0 months");
+        }
+        
+        // Log the prepared credit data for verification
+        System.out.println("\nPREPARED CREDIT DATA FOR SCORE CALCULATION:");
+        for (Map.Entry<String, Object> entry : creditData.entrySet()) {
+            System.out.println(entry.getKey() + ": " + entry.getValue());
         }
         
         return creditData;

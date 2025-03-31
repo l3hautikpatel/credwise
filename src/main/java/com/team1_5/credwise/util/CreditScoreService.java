@@ -211,7 +211,8 @@ public class CreditScoreService {
             double debt = getDoubleValue(creditData, "debt", 0.0);
             if (debt == 0.0) {
                 debt = getDoubleValue(creditData, "estimatedDebts", 
-                        getDoubleValue(creditData, "totalDebt", 0.0));
+                        getDoubleValue(creditData, "totalDebt", 
+                        getDoubleValue(creditData, "totalDebts", 0.0)));
             }
             
             // Loan request amount: check multiple possible field names
@@ -225,7 +226,8 @@ public class CreditScoreService {
             int tenure = getIntValue(creditData, "tenure", 12);
             if (tenure == 12) { // Check if still default
                 tenure = getIntValue(creditData, "requestedTermMonths", 
-                         getIntValue(creditData, "loanTermMonths", 12));
+                         getIntValue(creditData, "requestedTerm", 
+                         getIntValue(creditData, "loanTermMonths", 12)));
             }
             
             // Payment history: check multiple possible field names
@@ -238,7 +240,8 @@ public class CreditScoreService {
             double usedCredit = getDoubleValue(creditData, "used_credit", 0.0);
             if (usedCredit == 0.0) {
                 usedCredit = getDoubleValue(creditData, "usedCredit", 
-                             getDoubleValue(creditData, "creditTotalUsage", 0.0));
+                             getDoubleValue(creditData, "creditUsage", 
+                             getDoubleValue(creditData, "creditTotalUsage", 0.0)));
             }
             
             // Credit limit: check multiple possible field names
@@ -255,6 +258,9 @@ public class CreditScoreService {
                 creditLimit = 1000.0;
             }
             
+            // Log credit utilization values before mapping
+            System.out.println("CREDIT UTILIZATION DEBUG - Credit used: " + usedCredit + ", Credit limit: " + creditLimit);
+            
             // Employment status: check multiple possible field names
             String employmentStatus = getStringValue(creditData, "employmentStatus", null);
             if (employmentStatus == null) {
@@ -267,6 +273,9 @@ public class CreditScoreService {
                 monthsEmployed = getIntValue(creditData, "employmentDurationMonths", 
                                 getIntValue(creditData, "yearsEmployed", 0) * 12);
             }
+            
+            // Log employment data for debugging
+            System.out.println("EMPLOYMENT DEBUG - Status: " + employmentStatus + ", Months: " + monthsEmployed);
             
             // Assets: check multiple possible field names
             double assets = getDoubleValue(creditData, "totalAssets", 
