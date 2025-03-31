@@ -334,7 +334,7 @@ public class LoanMLService {
             }
             
             // Extract payment history from debts
-            String paymentHistory = "On-time";
+            String paymentHistory = "On Time"; // Default value - ML API format with space, not hyphen
             if (financialInfo != null && financialInfo.getExistingDebts() != null) {
                 // Count late payments
                 long latePayments = financialInfo.getExistingDebts().stream()
@@ -342,7 +342,7 @@ public class LoanMLService {
                         .count();
                         
                 // Format payment history according to ML API expectations
-                // The ML API expects specific values: "On-time", "Late < 30", "Late 30-60", "Late > 60"
+                // The ML API expects specific values: "On Time", "Late", "Default"
                 if (latePayments > 0) {
                     // Find the most severe late payment
                     Optional<String> worstPaymentHistory = financialInfo.getExistingDebts().stream()
@@ -357,7 +357,7 @@ public class LoanMLService {
                 }
             }
             
-            logger.info("Payment history: {}", paymentHistory);
+            logger.info("Payment history for ML API: {}", paymentHistory);
             
             // Requested amount
             double requestedAmount = 0.0;
@@ -449,27 +449,28 @@ public class LoanMLService {
      */
     private String standardizePaymentHistory(String rawPaymentHistory) {
         if (rawPaymentHistory == null) {
-            return "On-time";
+            return "On Time"; // ML API format
         }
         
         String normalized = rawPaymentHistory.trim().toLowerCase();
         
-        // Convert to one of the expected formats: "On-time", "Late < 30", "Late 30-60", "Late > 60"
-        if (normalized.contains("on time") || normalized.contains("on-time") || normalized.equals("good")) {
-            return "On-time";
+        // Convert to one of the expected formats for ML API: "On Time", "Late", "Default"
+        if (normalized.contains("on time") || normalized.contains("on-time") || 
+            normalized.equals("good") || normalized.equals("excellent")) {
+            return "On Time"; // ML API format has a space, not hyphen
         } else if (normalized.contains("< 30") || normalized.contains("less than 30") || 
-                   normalized.contains("under 30") || normalized.contains("1-29")) {
-            return "Late < 30";
-        } else if (normalized.contains("30-60") || normalized.contains("30 to 60") || 
+                   normalized.contains("under 30") || normalized.contains("1-29") ||
+                   normalized.contains("30-60") || normalized.contains("30 to 60") || 
                    normalized.contains("between 30 and 60")) {
-            return "Late 30-60";
+            return "Late"; // ML API format - all late payments map to "Late"
         } else if (normalized.contains("> 60") || normalized.contains("over 60") || 
-                   normalized.contains("more than 60") || normalized.contains("90+")) {
-            return "Late > 60";
+                   normalized.contains("more than 60") || normalized.contains("90+") ||
+                   normalized.contains("default") || normalized.contains("bankruptcy")) {
+            return "Default"; // ML API format - severe late payments map to "Default"
         }
         
         // Default mapping for unrecognized formats
-        logger.warn("Unrecognized payment history format: '{}', defaulting to 'Late < 30'", rawPaymentHistory);
-        return "Late < 30";
+        logger.warn("Unrecognized payment history format: '{}', defaulting to 'Late'", rawPaymentHistory);
+        return "Late"; // ML API format
     }
 } 
