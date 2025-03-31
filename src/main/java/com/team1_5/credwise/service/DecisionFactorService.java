@@ -123,28 +123,37 @@ public class DecisionFactorService {
     
             // Payment History factor - handle different possible field names
             String paymentHistoryRating = "Fair";
+            boolean isOnTime = false;
             
             if (creditEvaluationData.containsKey("paymentHistoryRating")) {
                 paymentHistoryRating = (String) creditEvaluationData.get("paymentHistoryRating");
+                isOnTime = "Excellent".equalsIgnoreCase(paymentHistoryRating);
             } else if (creditEvaluationData.containsKey("payment_history_rating")) {
                 paymentHistoryRating = (String) creditEvaluationData.get("payment_history_rating");
+                isOnTime = "Excellent".equalsIgnoreCase(paymentHistoryRating);
             } else if (creditEvaluationData.containsKey("payment_history")) {
                 String paymentHistory = (String) creditEvaluationData.get("payment_history");
+                // Check if it's strictly "On-time" or "On Time", anything else is considered late
+                isOnTime = paymentHistory.equalsIgnoreCase("On-time") || 
+                           paymentHistory.equalsIgnoreCase("On Time");
+                
                 // Convert payment history to rating
-                if (paymentHistory.toLowerCase().contains("on-time") || 
-                    paymentHistory.toLowerCase().contains("on time")) {
+                if (isOnTime) {
                     paymentHistoryRating = "Excellent";
-                } else if (paymentHistory.toLowerCase().contains("< 30")) {
-                    paymentHistoryRating = "Fair";
-                } else if (paymentHistory.toLowerCase().contains("> 30")) {
+                } else {
+                    // Any payment history that's not on-time is considered negative
                     paymentHistoryRating = "Poor";
                 }
+                
+                System.out.println("Payment history value from data: '" + paymentHistory + 
+                                 "', evaluated as: " + (isOnTime ? "On Time" : "Late") + 
+                                 ", Rating: " + paymentHistoryRating);
             }
             
-            String paymentHistoryImpact = "Excellent".equalsIgnoreCase(paymentHistoryRating) ? "Positive" : "Negative";
-            String paymentHistoryDescription = "Excellent".equalsIgnoreCase(paymentHistoryRating) 
+            String paymentHistoryImpact = isOnTime ? "Positive" : "Negative";
+            String paymentHistoryDescription = isOnTime 
                     ? "Payment history shows consistent on-time payments." 
-                    : "Payment history indicates issues with timely repayments.";
+                    : "Payment history indicates late payments, which negatively impacts your credit assessment.";
                     
             factors.add(createFactor(result, "Payment History", paymentHistoryImpact, paymentHistoryDescription));
             System.out.println("Added Payment History factor: " + paymentHistoryImpact + " - " + paymentHistoryDescription);
