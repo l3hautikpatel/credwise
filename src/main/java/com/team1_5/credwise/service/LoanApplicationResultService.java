@@ -146,6 +146,12 @@ public class LoanApplicationResultService {
             logger.info("Using eligibility score from credit data: {}", eligibilityScore);
         }
         
+        // For denied applications, always set eligibility score to zero
+        if (isDenied) {
+            eligibilityScore = 0;
+            logger.info("Application is DENIED - setting eligibility score to zero");
+        }
+        
         result.setEligibilityScore(eligibilityScore);
         
         // Calculate max eligible amount based on approval status and credit score
