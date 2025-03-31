@@ -124,40 +124,205 @@ public class DecisionFactorService {
             // Payment History factor - handle different possible field names
             String paymentHistoryRating = "Fair";
             boolean isOnTime = false;
+            String rawPaymentHistory = null;
             
-            if (creditEvaluationData.containsKey("paymentHistoryRating")) {
-                paymentHistoryRating = (String) creditEvaluationData.get("paymentHistoryRating");
-                isOnTime = "Excellent".equalsIgnoreCase(paymentHistoryRating);
-            } else if (creditEvaluationData.containsKey("payment_history_rating")) {
-                paymentHistoryRating = (String) creditEvaluationData.get("payment_history_rating");
-                isOnTime = "Excellent".equalsIgnoreCase(paymentHistoryRating);
-            } else if (creditEvaluationData.containsKey("payment_history")) {
-                String paymentHistory = (String) creditEvaluationData.get("payment_history");
-                // Check if it's strictly "On-time" or "On Time", anything else is considered late
-                isOnTime = paymentHistory.equalsIgnoreCase("On-time") || 
-                           paymentHistory.equalsIgnoreCase("On Time");
+            System.out.println("\n🔍 PAYMENT HISTORY CHECK: Starting payment history factor creation");
+            System.out.println("Credit evaluation data keys: " + String.join(", ", creditEvaluationData.keySet()));
+            
+            // First check: Direct check for raw payment history
+            if (creditEvaluationData.containsKey("payment_history")) {
+                rawPaymentHistory = (String) creditEvaluationData.get("payment_history");
+                System.out.println("🔍 FOUND payment_history key with value: '" + rawPaymentHistory + "'");
                 
-                // Convert payment history to rating
-                if (isOnTime) {
+                // Explicit check for "Late" keyword - this should catch all possible formats
+                if (rawPaymentHistory != null && 
+                    (rawPaymentHistory.contains("Late") || rawPaymentHistory.contains("late"))) {
+                    System.out.println("✅ DIRECT MATCH: Found 'Late' in payment history, setting NEGATIVE impact");
+                    isOnTime = false;
+                    paymentHistoryRating = "Poor";
+                } else if (rawPaymentHistory != null && 
+                          (rawPaymentHistory.equalsIgnoreCase("On-time") || 
+                           rawPaymentHistory.equalsIgnoreCase("On Time") ||
+                           rawPaymentHistory.equals("On time"))) {
+                    System.out.println("✅ DIRECT MATCH: Found on-time payment history, setting POSITIVE impact");
+                    isOnTime = true;
                     paymentHistoryRating = "Excellent";
-                } else {
-                    // Any payment history that's not on-time is considered negative
+                } else if (rawPaymentHistory != null) {
+                    // Default to negative for any unknown payment history
+                    System.out.println("⚠️ UNKNOWN: Payment history is not explicitly on-time, defaulting to NEGATIVE: '" + 
+                                     rawPaymentHistory + "'");
+                    isOnTime = false;
                     paymentHistoryRating = "Poor";
                 }
+            } 
+            // Second check: Look for payment history rating
+            else if (creditEvaluationData.containsKey("payment_history_rating")) {
+                paymentHistoryRating = (String) creditEvaluationData.get("payment_history_rating");
+                System.out.println("🔍 FOUND payment_history_rating: '" + paymentHistoryRating + "'");
+                isOnTime = "Excellent".equalsIgnoreCase(paymentHistoryRating);
+            } 
+            // Third check: Look for original raw payment history key
+            else if (creditEvaluationData.containsKey("paymentHistory")) {
+                rawPaymentHistory = (String) creditEvaluationData.get("paymentHistory");
+                System.out.println("🔍 FOUND paymentHistory key with value: '" + rawPaymentHistory + "'");
                 
-                System.out.println("Payment history value from data: '" + paymentHistory + 
-                                 "', evaluated as: " + (isOnTime ? "On Time" : "Late") + 
-                                 ", Rating: " + paymentHistoryRating);
+                // Same logic as above - check for "Late" explicitly
+                if (rawPaymentHistory != null && 
+                    (rawPaymentHistory.contains("Late") || rawPaymentHistory.contains("late"))) {
+                    System.out.println("✅ DIRECT MATCH: Found 'Late' in paymentHistory, setting NEGATIVE impact");
+                    isOnTime = false;
+                    paymentHistoryRating = "Poor";
+                } else if (rawPaymentHistory != null && 
+                          (rawPaymentHistory.equalsIgnoreCase("On-time") || 
+                           rawPaymentHistory.equalsIgnoreCase("On Time") ||
+                           rawPaymentHistory.equals("On time"))) {
+                    System.out.println("✅ DIRECT MATCH: Found on-time paymentHistory, setting POSITIVE impact");
+                    isOnTime = true;
+                    paymentHistoryRating = "Excellent";
+                } else if (rawPaymentHistory != null) {
+                    System.out.println("⚠️ UNKNOWN: paymentHistory is not explicitly on-time or late, defaulting to NEGATIVE: '" + 
+                                     rawPaymentHistory + "'");
+                    isOnTime = false;
+                    paymentHistoryRating = "Poor";
+                }
+            } 
+            // Last check: Check every key for anything containing "payment" and "history"
+            else {
+                System.out.println("⚠️ No direct payment history key found, checking all keys for relevant data");
+                for (String key : creditEvaluationData.keySet()) {
+                    if (key.toLowerCase().contains("payment") && 
+                        (key.toLowerCase().contains("history") || key.toLowerCase().contains("status"))) {
+                        Object value = creditEvaluationData.get(key);
+                        System.out.println("🔍 Found potential payment history in key: '" + key + "' with value: '" + value + "'");
+                        
+                        if (value instanceof String) {
+                            rawPaymentHistory = (String) value;
+                            if (rawPaymentHistory.contains("Late") || rawPaymentHistory.contains("late")) {
+                                System.out.println("✅ DIRECT MATCH: Found 'Late' in key '" + key + "', setting NEGATIVE impact");
+                                isOnTime = false;
+                                paymentHistoryRating = "Poor";
+                                break;
+                            } else if (rawPaymentHistory.equalsIgnoreCase("On-time") || 
+                                      rawPaymentHistory.equalsIgnoreCase("On Time")) {
+                                System.out.println("✅ DIRECT MATCH: Found on-time payment in key '" + key + "', setting POSITIVE impact");
+                                isOnTime = true;
+                                paymentHistoryRating = "Excellent";
+                                break;
+                            }
+                        }
+                    } else if (key.equalsIgnoreCase("paymentHistoryRating")) {
+                        // Special case for paymentHistoryRating field
+                        String ratingValue = (String) creditEvaluationData.get(key);
+                        System.out.println("🔍 Found payment history rating in key: '" + key + "' with value: '" + ratingValue + "'");
+                        
+                        if (ratingValue != null && ratingValue.equalsIgnoreCase("Excellent")) {
+                            System.out.println("✅ RATING MATCH: Found Excellent payment history rating, setting POSITIVE impact");
+                            isOnTime = true;
+                            paymentHistoryRating = "Excellent";
+                            break;
+                        } else if (ratingValue != null && 
+                                 (ratingValue.equalsIgnoreCase("Poor") || ratingValue.equalsIgnoreCase("Bad"))) {
+                            System.out.println("✅ RATING MATCH: Found Poor/Bad payment history rating, setting NEGATIVE impact");
+                            isOnTime = false;
+                            paymentHistoryRating = "Poor";
+                            break;
+                        }
+                    }
+                }
+                
+                // If nothing found, default to negative
+                if (rawPaymentHistory == null && paymentHistoryRating.equals("Fair")) {
+                    System.out.println("⚠️ No payment history found in any key, defaulting to NEGATIVE impact");
+                    isOnTime = false;
+                    paymentHistoryRating = "Poor";
+                }
             }
             
-            String paymentHistoryImpact = isOnTime ? "Positive" : "Negative";
-            String paymentHistoryDescription = isOnTime 
-                    ? "Payment history shows consistent on-time payments." 
-                    : "Payment history indicates late payments, which negatively impacts your credit assessment.";
+            // Final safety check - ONLY force negative impact if specifically contains "Late"
+            if (rawPaymentHistory != null && 
+                (rawPaymentHistory.contains("Late") || 
+                 rawPaymentHistory.contains("late") || 
+                 rawPaymentHistory.toLowerCase().contains("default") ||
+                 rawPaymentHistory.toLowerCase().contains("missed") ||
+                 rawPaymentHistory.toLowerCase().contains("delinquent"))) {
+                System.out.println("🛑 FINAL SAFETY CHECK: Forcing NEGATIVE impact for late-indicating payment history: '" + 
+                                 rawPaymentHistory + "'");
+                isOnTime = false;
+                paymentHistoryRating = "Poor";
+            } else if (rawPaymentHistory != null &&
+                      (rawPaymentHistory.equalsIgnoreCase("On-time") || 
+                       rawPaymentHistory.equalsIgnoreCase("On Time") ||
+                       rawPaymentHistory.equals("On time"))) {
+                // SAFETY CHECK: Ensure "On Time" is ALWAYS treated as positive
+                System.out.println("✅ FINAL SAFETY CHECK: Ensuring POSITIVE impact for on-time payment history: '" + 
+                                 rawPaymentHistory + "'");
+                isOnTime = true;
+                paymentHistoryRating = "Excellent";
+            } else if (rawPaymentHistory != null && 
+                      !rawPaymentHistory.toLowerCase().contains("late")) {
+                // If it doesn't explicitly mention "late", treat as positive
+                System.out.println("✅ LENIENT CHECK: Payment history doesn't contain 'late', assuming positive: '" + 
+                                 rawPaymentHistory + "'");
+                isOnTime = true;
+                paymentHistoryRating = "Excellent";
+            }
+            
+            // Generate description and create factor
+            String paymentHistoryImpact = "Neutral";
+            String paymentHistoryDescription = "";
+            
+            // Extra logging to debug the decision
+            System.out.println("🧪 DECISION DEBUG - Final values: isOnTime=" + isOnTime + 
+                             ", paymentHistoryRating=" + paymentHistoryRating + 
+                             ", rawPaymentHistory=" + rawPaymentHistory);
+            
+            // GUARANTEED LATE PAYMENT CHECK - if any form of "Late" is present, always force negative
+            if (rawPaymentHistory != null && 
+                (rawPaymentHistory.toLowerCase().contains("late") || 
+                 rawPaymentHistory.toLowerCase().contains("default") ||
+                 rawPaymentHistory.toLowerCase().contains("missed") ||
+                 rawPaymentHistory.toLowerCase().contains("delinquent"))) {
+                
+                System.out.println("‼️ GUARANTEED NEGATIVE CHECK: Found late payment indicator, FORCING negative impact");
+                isOnTime = false;
+                paymentHistoryRating = "Poor";
+                paymentHistoryImpact = "Negative";
+                paymentHistoryDescription = "Payment history indicates late payments, which negatively impacts your credit assessment.";
+            }
+            // Determine impact based on rating and raw history if not already set
+            else if (isOnTime || "Excellent".equalsIgnoreCase(paymentHistoryRating)) {
+                paymentHistoryImpact = "Positive";
+                paymentHistoryDescription = "Payment history shows consistent on-time payments.";
+                System.out.println("✅ FINAL DECISION: Setting POSITIVE impact based on payment history");
+            } else if (!isOnTime || "Poor".equalsIgnoreCase(paymentHistoryRating)) {
+                paymentHistoryImpact = "Negative";
+                paymentHistoryDescription = "Payment history indicates late payments, which negatively impacts your credit assessment.";
+                System.out.println("⚠️ FINAL DECISION: Setting NEGATIVE impact based on payment history");
+            } else {
+                // Default neutral case
+                paymentHistoryImpact = "Neutral";
+                paymentHistoryDescription = "Payment history has been considered in your application assessment.";
+                System.out.println("ℹ️ FINAL DECISION: Setting NEUTRAL impact due to ambiguous payment history");
+            }
                     
-            factors.add(createFactor(result, "Payment History", paymentHistoryImpact, paymentHistoryDescription));
-            System.out.println("Added Payment History factor: " + paymentHistoryImpact + " - " + paymentHistoryDescription);
-    
+            // Create the decision factor
+            DecisionFactor paymentHistoryFactor = createFactor(result, "Payment History", paymentHistoryImpact, paymentHistoryDescription);
+            
+            // FINAL VALIDATION - Make absolutely sure late payments are negative
+            if (rawPaymentHistory != null && rawPaymentHistory.toLowerCase().contains("late") && 
+                !"Negative".equals(paymentHistoryFactor.getImpact())) {
+                
+                System.out.println("🚨 CRITICAL ERROR: Late payment wasn't marked as negative! Fixing before save.");
+                paymentHistoryFactor.setImpact("Negative");
+                paymentHistoryFactor.setDescription("Payment history indicates late payments, which negatively impacts your credit assessment.");
+            }
+            
+            factors.add(paymentHistoryFactor);
+            System.out.println("📊 PAYMENT HISTORY FACTOR CREATED: " + paymentHistoryImpact + 
+                           " - " + paymentHistoryDescription + 
+                           " (Based on: " + (rawPaymentHistory != null ? "'" + rawPaymentHistory + "'" : "'" + paymentHistoryRating + "'") + ")");
+            System.out.println("💾 DATABASE VALUE: factor='Payment History', impact='" + paymentHistoryFactor.getImpact() + "'");
+            
             // Credit Score Accuracy (only if user provided a score)
             if (creditEvaluationData.containsKey("isScoreAccurate")) {
                 boolean isScoreAccurate = (boolean) creditEvaluationData.get("isScoreAccurate");

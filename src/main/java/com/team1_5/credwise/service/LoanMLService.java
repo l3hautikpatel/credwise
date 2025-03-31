@@ -354,28 +354,56 @@ public class LoanMLService {
             // Extract payment history from debts
             String paymentHistory = "On Time"; // Default value - ML API format with space, not hyphen
             if (financialInfo != null && financialInfo.getExistingDebts() != null) {
-                // Count late payments
-                long latePayments = financialInfo.getExistingDebts().stream()
-                        .filter(debt -> debt.getPaymentHistory() != null && !debt.getPaymentHistory().equals("On-time"))
-                        .count();
-                        
-                // Format payment history according to ML API expectations
-                // The ML API expects specific values: "On Time", "Late", "Default"
-                if (latePayments > 0) {
-                    // Find the most severe late payment
-                    Optional<String> worstPaymentHistory = financialInfo.getExistingDebts().stream()
-                            .map(Debt::getPaymentHistory)
-                            .filter(ph -> ph != null && !ph.equals("On-time"))
-                            .max(Comparator.naturalOrder());
-                            
-                    if (worstPaymentHistory.isPresent()) {
-                        paymentHistory = standardizePaymentHistory(worstPaymentHistory.get());
-                        logger.info("Using worst payment history: {}", paymentHistory);
+                List<Debt> debts = financialInfo.getExistingDebts();
+                logger.info("Checking payment history from {} debt records", debts.size());
+                
+                // Log all payment histories for debugging
+                boolean hasLatePayments = false;
+                for (Debt debt : debts) {
+                    String debtPaymentHistory = debt.getPaymentHistory();
+                    logger.info("Debt '{}' has payment history: '{}'", debt.getDebtType(), debtPaymentHistory);
+                    
+                    // Check explicitly for "Late" in any payment history
+                    if (debtPaymentHistory != null && 
+                        (debtPaymentHistory.contains("Late") || debtPaymentHistory.contains("late"))) {
+                        logger.info("Found 'Late' in payment history for debt: {}", debt.getDebtType());
+                        hasLatePayments = true;
+                    }
+                    
+                    // Also check if it's not explicitly "On-time" or "On Time"
+                    if (debtPaymentHistory != null && !debtPaymentHistory.equals("On-time") && 
+                        !debtPaymentHistory.equals("On Time")) {
+                        logger.info("Found non-on-time payment history for debt: {}", debt.getDebtType());
+                        hasLatePayments = true;
                     }
                 }
+                
+                if (hasLatePayments) {
+                    // Find the most severe late payment
+                    Optional<String> worstPaymentHistory = debts.stream()
+                            .map(Debt::getPaymentHistory)
+                            .filter(ph -> ph != null)
+                            .filter(ph -> ph.contains("Late") || ph.contains("late") || 
+                                   (!ph.equals("On-time") && !ph.equals("On Time")))
+                            .findFirst();
+                            
+                    if (worstPaymentHistory.isPresent()) {
+                        String rawHistory = worstPaymentHistory.get();
+                        logger.info("Found worst payment history: '{}'", rawHistory);
+                        paymentHistory = standardizePaymentHistory(rawHistory);
+                    } else {
+                        // Fallback if stream detection somehow failed
+                        logger.warn("Stream detection failed but late payments were found, setting to 'Late'");
+                        paymentHistory = "Late";
+                    }
+                } else {
+                    logger.info("No late payments found in debt records, using 'On Time'");
+                }
+            } else {
+                logger.info("No debt records found, using default payment history: 'On Time'");
             }
             
-            logger.info("Payment history for ML API: {}", paymentHistory);
+            logger.info("Final payment history for ML API: '{}'", paymentHistory);
             
             // Requested amount
             double requestedAmount = 0.0;
@@ -467,24 +495,41 @@ public class LoanMLService {
      */
     private String standardizePaymentHistory(String rawPaymentHistory) {
         if (rawPaymentHistory == null) {
+            logger.info("Payment history is null, defaulting to 'On Time'");
             return "On Time"; // ML API format
         }
         
         String normalized = rawPaymentHistory.trim().toLowerCase();
+        logger.info("Standardizing payment history: '{}' (normalized to '{}')", rawPaymentHistory, normalized);
+        
+        // FIRST CHECK: Direct check for "Late" keyword - this should catch all late payments
+        if (normalized.contains("late")) {
+            logger.info("Found 'late' keyword in payment history - categorizing as 'Late'");
+            return "Late"; // ML API format
+        }
         
         // Convert to one of the expected formats for ML API: "On Time", "Late", "Default"
         if (normalized.contains("on time") || normalized.contains("on-time") || 
             normalized.equals("good") || normalized.equals("excellent")) {
+            logger.info("Payment history indicates on-time payments - categorizing as 'On Time'");
             return "On Time"; // ML API format has a space, not hyphen
         } else if (normalized.contains("< 30") || normalized.contains("less than 30") || 
                    normalized.contains("under 30") || normalized.contains("1-29") ||
                    normalized.contains("30-60") || normalized.contains("30 to 60") || 
                    normalized.contains("between 30 and 60")) {
+            logger.info("Payment history indicates late payments (specific timeframe) - categorizing as 'Late'");
             return "Late"; // ML API format - all late payments map to "Late"
         } else if (normalized.contains("> 60") || normalized.contains("over 60") || 
                    normalized.contains("more than 60") || normalized.contains("90+") ||
                    normalized.contains("default") || normalized.contains("bankruptcy")) {
+            logger.info("Payment history indicates severe late payments - categorizing as 'Default'");
             return "Default"; // ML API format - severe late payments map to "Default"
+        }
+        
+        // If the payment history is anything other than clearly "on time", treat as late
+        if (!normalized.contains("on time") && !normalized.contains("on-time")) {
+            logger.warn("Payment history '{}' doesn't explicitly mention on-time - categorizing as 'Late'", rawPaymentHistory);
+            return "Late"; // ML API format
         }
         
         // Default mapping for unrecognized formats

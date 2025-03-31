@@ -659,29 +659,85 @@ public class LoanApplicationService {
      */
     private String analyzePaymentHistory(List<Debt> debts) {
         if (debts == null || debts.isEmpty()) {
-            return "On-time"; // Default if no debt history
+            System.out.println("No debts found, using default payment history: 'On Time'");
+            return "On Time"; // Default if no debt history - use space instead of hyphen
         }
         
         // Track the "worst" payment history status
-        String worstStatus = "On-time";
+        String worstStatus = "On Time"; // Use "On Time" with space as default
         
+        // Debug - Print all debt payment histories
+        System.out.println("📊 ANALYZING PAYMENT HISTORY FOR " + debts.size() + " DEBTS:");
+        
+        // First pass - quickly check if any payment contains "Late" to prioritize it
         for (Debt debt : debts) {
             String status = debt.getPaymentHistory();
+            System.out.println("  - Debt type: " + debt.getDebtType() + ", Payment history: " + status);
+            
             if (status == null) {
                 continue;
             }
             
-            // Evaluate severity of payment history
-            if (status.equals("Late > 60") || status.contains("60+")) {
-                return "Late > 60"; // Immediately return the worst status
-            } else if ((status.equals("Late 30-60") || status.contains("30-60")) && !worstStatus.equals("Late > 60")) {
-                worstStatus = "Late 30-60";
-            } else if ((status.equals("Late < 30") || status.contains("< 30")) && 
-                      !worstStatus.equals("Late > 60") && !worstStatus.equals("Late 30-60")) {
-                worstStatus = "Late < 30";
+            // Immediately prioritize any status containing "Late"
+            if (status.contains("Late") || status.contains("late")) {
+                System.out.println("⚠️ FOUND LATE PAYMENT: " + status);
+                
+                // Most severe late payment categorization - return immediately
+                if (status.contains("> 60") || status.contains("60+")) {
+                    System.out.println("🔴 SEVERE LATE PAYMENT: Immediately returning '" + status + "'");
+                    // Critical log for tracking late payment propagation
+                    System.out.println("🔴 CRITICAL ALERT: LATE PAYMENT FOUND - returning '" + status + "' for credit data");
+                    return status; // Immediately return the worst status
+                }
             }
         }
         
+        // Second pass - more detailed analysis if no severe late payments found
+        for (Debt debt : debts) {
+            String status = debt.getPaymentHistory();
+            
+            if (status == null) {
+                continue;
+            }
+            
+            // Only consider this status "On Time" if it explicitly uses one of these formats
+            boolean isExplicitlyOnTime = status.equalsIgnoreCase("On-time") || 
+                                         status.equalsIgnoreCase("On Time") || 
+                                         status.equals("On time");
+            
+            if (isExplicitlyOnTime) {
+                System.out.println("✅ CONFIRMED ON-TIME PAYMENT: " + status);
+                // We found an on-time payment, but keep checking for worse status
+                continue;
+            }
+            
+            // ANY other status that contains "Late" is considered a late payment
+            if (status.contains("Late") || status.contains("late")) {
+                System.out.println("⚠️ EVALUATING LATE PAYMENT SEVERITY: " + status);
+                
+                // Categorize by severity
+                if ((status.contains("30-60") || status.contains("30 to 60")) && 
+                    !worstStatus.contains("60")) {
+                    System.out.println("🟠 MEDIUM LATE PAYMENT: Updating worst status to '" + status + "'");
+                    worstStatus = status;
+                } else if ((status.contains("< 30") || status.contains("less than 30")) && 
+                          !worstStatus.contains("60") && !worstStatus.contains("30-60")) {
+                    System.out.println("🟡 MINOR LATE PAYMENT: Updating worst status to '" + status + "'");
+                    worstStatus = status;
+                } else if (!worstStatus.contains("Late") && !worstStatus.contains("late")) {
+                    // Any other form of "Late" - catch-all
+                    System.out.println("⚠️ GENERIC LATE PAYMENT: Updating worst status to '" + status + "'");
+                    worstStatus = status;
+                }
+            }
+        }
+        
+        // If we found any late payment status, log it prominently
+        if (worstStatus.contains("Late") || worstStatus.contains("late")) {
+            System.out.println("🔴 CRITICAL ALERT: LATE PAYMENT DETECTED - returning '" + worstStatus + "' for credit data");
+        }
+        
+        System.out.println("📊 PAYMENT HISTORY ANALYSIS RESULT: " + worstStatus);
         return worstStatus;
     }
 
