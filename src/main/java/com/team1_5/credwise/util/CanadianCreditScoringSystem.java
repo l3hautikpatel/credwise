@@ -154,21 +154,27 @@ public class CanadianCreditScoringSystem {
     public static String determineEmploymentStability(String employmentStatus, int monthsEmployed) {
         // Debug logging
         System.out.println("EMPLOYMENT STABILITY CHECK: status=" + employmentStatus + ", months=" + monthsEmployed);
-        System.out.println("CONDITION 1 (Full-time >= 12 months): " + (employmentStatus.equals("Full-time") && monthsEmployed >= 12));
-        System.out.println("CONDITION 2 (Any type >= 24 months): " + (monthsEmployed >= 24));
         
-        // Fix: Ensure any employment over 24 months is considered stable (which would include 30+ months)
-        // The existing condition "monthsEmployed >= 24" should already cover the 30+ months case
-        // We'll make the logic more explicit and add additional debugging
+        // Normalize employment status to handle variations
+        String normalizedStatus = employmentStatus != null ? employmentStatus.trim().toLowerCase() : "";
         
-        boolean isFullTimeStable = employmentStatus.equals("Full-time") && monthsEmployed >= 12;
-        boolean isLongTermStable = monthsEmployed >= 24; // This includes 30+ months
+        // Check for full-time with at least 12 months
+        boolean isFullTimeStable = normalizedStatus.contains("full-time") || normalizedStatus.contains("fulltime");
+        isFullTimeStable = isFullTimeStable && monthsEmployed >= 12;
+        
+        // Any employment type with at least 24 months is considered stable
+        boolean isLongTermStable = monthsEmployed >= 24;
+        
+        // Determine stability based on either condition
         boolean isStable = isFullTimeStable || isLongTermStable;
         
-        System.out.println("EMPLOYMENT STABILITY CHECK ADDITIONAL: monthsEmployed >= 24: " + (monthsEmployed >= 24));
-        System.out.println("EMPLOYMENT STABILITY CHECK ADDITIONAL: monthsEmployed >= 30: " + (monthsEmployed >= 30));
-        String result = isStable ? "Stable" : "Unstable or Student";
+        System.out.println("EMPLOYMENT STABILITY DETAILS:");
+        System.out.println("  - Is full-time employment: " + normalizedStatus.contains("full-time"));
+        System.out.println("  - Is full-time at least 12 months: " + isFullTimeStable);
+        System.out.println("  - Is any employment at least 24 months: " + isLongTermStable);
+        System.out.println("  - Employment duration (months): " + monthsEmployed);
         
+        String result = isStable ? "Stable" : "Unstable or Student";
         System.out.println("EMPLOYMENT STABILITY RESULT: " + result);
         
         return result;
@@ -212,7 +218,24 @@ public class CanadianCreditScoringSystem {
 
     // Credit Scoring Methods
     public static double creditUtilizationScore(double used, double limit) {
-        double ratio = (limit > 0) ? used / limit : 1.0;
+        if (limit <= 0) {
+            System.out.println("Warning: Credit limit is zero or negative, using default value to prevent division by zero");
+            return 0.0; // Worst utilization score for invalid limit
+        }
+        
+        double ratio = used / limit;
+        
+        // Log warning for over-limit utilization
+        if (ratio > 1.0) {
+            System.out.println("Warning: Credit utilization is over 100%: " + (ratio * 100) + "% - this significantly impacts credit score");
+        }
+        
+        // For utilization over 100%, ensure a minimum negative impact
+        if (ratio > 1.0) {
+            return 0.0; // Maximal negative impact for over-limit
+        }
+        
+        // Normal calculation for utilization under 100%
         return Math.max(0, Math.min(1, 1 - ratio));
     }
 
@@ -303,189 +326,91 @@ public class CanadianCreditScoringSystem {
             int monthsEmployed = getIntValueSafely(data, "monthsEmployed", 0);
             double assets = getDoubleValueSafely(data, "assets", 0.0);
             double debt = getDoubleValueSafely(data, "debt", 0.0);
-            double income = getDoubleValueSafely(data, "income", 3000.0); // Default reasonable income
-            double expenses = getDoubleValueSafely(data, "expenses", 1500.0); // Default reasonable expenses
+            double income = getDoubleValueSafely(data, "income", 3000.0);
+            double expenses = getDoubleValueSafely(data, "expenses", 1500.0);
             
-            // Gather debt types
-            Set<String> debtTypes = new HashSet<>();
-            if (data.containsKey("debtTypes") && data.get("debtTypes") instanceof Set) {
-                debtTypes = (Set<String>) data.get("debtTypes");
+            // Calculate credit utilization
+            double creditUtilization = creditLimit > 0 ? (usedCredit / creditLimit) : 0.0;
+            
+            // Calculate debt-to-income ratio
+            double dti = income > 0 ? (debt / income) : 0.0;
+            
+            // Initialize base score
+            int baseScore = 600; // Starting point
+            
+            // Payment History Impact
+            switch (paymentHistory.toLowerCase()) {
+                case "on-time":
+                    baseScore += 50;
+                    break;
+                case "late < 30":
+                    baseScore += 25;
+                    break;
+                case "late 30-60":
+                    baseScore -= 25;
+                    break;
+                case "late > 60":
+                    baseScore -= 50;
+                    break;
+                default:
+                    baseScore += 25; // Default to slight positive
             }
             
-            // Convert to account types for scoring
-            List<String> accountTypes = new ArrayList<>(debtTypes);
-            
-            // Initialize credit age based on employment if not directly provided
-            int creditAge = getIntValueSafely(data, "creditAge", Math.max(6, monthsEmployed));
-            
-            // Initialize lists for other factors
-            List<Date> inquiryDates = new ArrayList<>(); // Empty list as default
-            List<Integer> historicalScores = new ArrayList<>(); // Empty list as default
-            
-            // Core score calculation components
-            int paymentHistoryComponent = 0;     // 35% of score (0-300)
-            int creditUtilizationComponent = 0;  // 30% of score (0-300)
-            int creditAgeComponent = 0;          // 15% of score (0-150)
-            int creditMixComponent = 0;          // 10% of score (0-100)
-            int inquiriesComponent = 0;          // 10% of score (0-100)
-            int baseScore = 0;
-            
-            // 1. Payment History (35%)
-            String paymentRating = determinePaymentHistoryRating(paymentHistory);
-            switch (paymentRating) {
-                case "Excellent": paymentHistoryComponent = 300; break;
-                case "Good": paymentHistoryComponent = 260; break;
-                case "Fair": paymentHistoryComponent = 200; break;
-                case "Poor": paymentHistoryComponent = 120; break;
-                default: paymentHistoryComponent = 180; // Default to middle score
+            // Credit Utilization Impact
+            if (creditUtilization < 0.3) {
+                baseScore += 30;
+            } else if (creditUtilization < 0.5) {
+                baseScore += 15;
+            } else if (creditUtilization < 0.8) {
+                // No change for moderate-high utilization
+            } else if (creditUtilization <= 1.0) {
+                baseScore -= 30; // Significant penalty for high utilization
+            } else {
+                // Over 100% utilization (over limit)
+                baseScore -= 50; // More severe penalty for over-limit
+                System.out.println("Applied severe penalty (-50) for over-limit credit utilization: " + 
+                                 (creditUtilization * 100) + "%");
             }
             
-            // 2. Credit Utilization (30%) - Lower is better
-            double utilizationRatio = 0.0;
-            if (creditLimit > 0) {
-                utilizationRatio = (usedCredit / creditLimit) * 100; // Convert to percentage
-                
-                if (utilizationRatio <= 10) {
-                    creditUtilizationComponent = 300; // Excellent: 0-10%
-                } else if (utilizationRatio <= 30) {
-                    creditUtilizationComponent = 270; // Very good: 10-30%
-                } else if (utilizationRatio <= 50) {
-                    creditUtilizationComponent = 210; // Good: 30-50%
-                } else if (utilizationRatio <= 75) {
-                    creditUtilizationComponent = 150; // Fair: 50-75%
-                } else if (utilizationRatio < 100) {
-                    creditUtilizationComponent = 90;  // Poor: 75-100%
-                } else {
-                    creditUtilizationComponent = 30;  // Very poor: over 100%
+            // Employment Stability Impact
+            if ("Full-time".equals(employmentStatus)) {
+                if (monthsEmployed >= 24) {
+                    baseScore += 40;
+                } else if (monthsEmployed >= 12) {
+                    baseScore += 20;
                 }
-            } else {
-                // If no credit limit is available, assume moderate utilization
-                creditUtilizationComponent = 150;
-            }
-            
-            // 3. Credit Age (15%) - Longer is better
-            if (creditAge < 6) {
-                creditAgeComponent = 30;      // Very short history: <6 months
-            } else if (creditAge < 24) {
-                creditAgeComponent = 60;      // Short history: 6-24 months
-            } else if (creditAge < 60) {
-                creditAgeComponent = 100;     // Moderate history: 2-5 years
-            } else if (creditAge < 120) {
-                creditAgeComponent = 125;     // Good history: 5-10 years
-            } else {
-                creditAgeComponent = 150;     // Excellent history: 10+ years
-            }
-            
-            // 4. Credit Mix (10%) - More diverse is better
-            int differentAccountTypes = accountTypes.size();
-            if (differentAccountTypes >= 4) {
-                creditMixComponent = 100;     // Excellent mix: 4+ types
-            } else if (differentAccountTypes == 3) {
-                creditMixComponent = 85;      // Very good mix: 3 types
-            } else if (differentAccountTypes == 2) {
-                creditMixComponent = 70;      // Good mix: 2 types
-            } else if (differentAccountTypes == 1) {
-                creditMixComponent = 50;      // Fair mix: 1 type
-            } else {
-                creditMixComponent = 30;      // Poor mix: 0 types
-            }
-            
-            // 5. New Credit Inquiries (10%) - Fewer is better
-            // Since we don't have actual inquiry data, we'll use a default good score here
-            inquiriesComponent = 90;          // Assume good (few inquiries)
-            
-            // 6. Employment Status and Income Stability Bonus
-            int employmentBonus = 0;
-            
-            // Print debugging info for employment bonus calculation
-            System.out.println("EMPLOYMENT BONUS CALCULATION: status=" + employmentStatus + ", months=" + monthsEmployed);
-            
-            // Update to ensure 30+ months is properly recognized
-            if (monthsEmployed >= 36) {
-                employmentBonus = 40;         // Long-term employment bonus (any type, 3+ years)
-                System.out.println("EMPLOYMENT BONUS: 40 (36+ months employment)");
-            } else if (monthsEmployed >= 24) {
-                employmentBonus = 30;         // Medium-long term employment bonus (any type, 2+ years)
-                System.out.println("EMPLOYMENT BONUS: 30 (24-35 months employment)");
-            } else if (employmentStatus.equalsIgnoreCase("Full-time") && monthsEmployed >= 12) {
-                employmentBonus = 25;         // Full-time employment bonus (1+ year)
-                System.out.println("EMPLOYMENT BONUS: 25 (Full-time 12+ months)");
-            } else if (employmentStatus.equalsIgnoreCase("Part-time") && monthsEmployed >= 12) {
-                employmentBonus = 15;         // Part-time employment bonus (1+ year)
-                System.out.println("EMPLOYMENT BONUS: 15 (Part-time 12+ months)");
-            } else {
-                System.out.println("EMPLOYMENT BONUS: 0 (Insufficient employment history)");
-            }
-            
-            // 7. Assets to Debt Ratio Bonus
-            int assetBonus = 0;
-            if (debt > 0 && assets > 0) {
-                double assetToDebtRatio = assets / debt;
-                if (assetToDebtRatio > 5) {
-                    assetBonus = 30;          // Excellent asset coverage
-                } else if (assetToDebtRatio > 2) {
-                    assetBonus = 20;          // Good asset coverage
-                } else if (assetToDebtRatio > 1) {
-                    assetBonus = 10;          // Fair asset coverage
+            } else if ("Part-time".equals(employmentStatus)) {
+                if (monthsEmployed >= 24) {
+                    baseScore += 20;
+                } else if (monthsEmployed >= 12) {
+                    baseScore += 10;
                 }
-            } else if (assets > 20000) {      // Good assets, no debt
-                assetBonus = 30;
             }
             
-            // 8. Calculate DTI (Debt-to-Income) Ratio Component
-            int dtiComponent = 0;
-            double loanRequest = getDoubleValueSafely(data, "loanRequest", 10000.0);
-            double dti = dtiScore(income, expenses, debt, loanRequest);
-            
-            if (dti < 0.25) {
-                dtiComponent = 40;            // Excellent DTI: below 25%
-            } else if (dti < 0.36) {
-                dtiComponent = 30;            // Very good DTI: 25-36%
-            } else if (dti < 0.43) {
-                dtiComponent = 20;            // Good DTI: 36-43%
-            } else {
-                dtiComponent = 0;             // Poor DTI: above 50%
+            // Debt-to-Income Impact
+            if (dti < 0.3) {
+                baseScore += 30;
+            } else if (dti < 0.4) {
+                baseScore += 15;
+            } else if (dti > 0.5) {
+                baseScore -= 30;
             }
             
-            // Calculate base score from all components
-            baseScore = paymentHistoryComponent + 
-                        creditUtilizationComponent + 
-                        creditAgeComponent + 
-                        creditMixComponent + 
-                        inquiriesComponent + 
-                        employmentBonus + 
-                        assetBonus + 
-                        dtiComponent;
+            // Asset Impact
+            if (assets > income * 12) {
+                baseScore += 20;
+            }
             
-            // Normalize to 300-900 range (common credit score range)
-            int minPossibleTotal = 120 + 30 + 30 + 30 + 0 + 0 + 0 + 0;     // 210 (worst case)
-            int maxPossibleTotal = 300 + 300 + 150 + 100 + 100 + 40 + 30 + 40; // 1060 (best case)
-            int range = maxPossibleTotal - minPossibleTotal;
+            // Ensure score stays within valid range
+            baseScore = Math.max(MIN_CREDIT_SCORE, Math.min(MAX_CREDIT_SCORE, baseScore));
             
-            int normalizedScore = MIN_CREDIT_SCORE + 
-                    (int)((baseScore - minPossibleTotal) * (MAX_CREDIT_SCORE - MIN_CREDIT_SCORE) / (double)range);
-            
-            // Ensure score is within valid range
-            int finalScore = Math.max(MIN_CREDIT_SCORE, Math.min(normalizedScore, MAX_CREDIT_SCORE));
-            
-            // Log calculation details
-            System.out.println("Credit Score Calculation Details:");
-            System.out.println("Payment History: " + paymentHistory + " (Rating: " + paymentRating + ", Score: " + paymentHistoryComponent + ")");
-            System.out.println("Credit Utilization: " + utilizationRatio + "% (Score: " + creditUtilizationComponent + ")");
-            System.out.println("Credit Age: " + creditAge + " months (Score: " + creditAgeComponent + ")");
-            System.out.println("Credit Mix: " + differentAccountTypes + " types (Score: " + creditMixComponent + ")");
-            System.out.println("Employment: " + employmentStatus + ", " + monthsEmployed + " months (Bonus: " + employmentBonus + ")");
-            System.out.println("Asset/Debt: Assets=" + assets + ", Debt=" + debt + " (Bonus: " + assetBonus + ")");
-            System.out.println("DTI Ratio: " + (dti * 100) + "% (Score: " + dtiComponent + ")");
-            System.out.println("Base Score: " + baseScore);
-            System.out.println("Final Score: " + finalScore);
-            
-            return finalScore;
+            System.out.println("Calculated credit score: " + baseScore);
+            return baseScore;
             
         } catch (Exception e) {
             System.out.println("Error calculating credit score: " + e.getMessage());
             e.printStackTrace();
-            return 650; // Return a moderate default score on error
+            return MIN_CREDIT_SCORE; // Return minimum score on error
         }
     }
     

@@ -4,6 +4,7 @@ import com.team1_5.credwise.model.FinancialInfo;
 import com.team1_5.credwise.model.EmploymentHistory;
 import com.team1_5.credwise.model.LoanApplication;
 import com.team1_5.credwise.model.PersonalInfo;
+import com.team1_5.credwise.model.Debt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,6 +18,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -73,15 +75,14 @@ public class LoanMLService {
                     return responseData;
                 } else {
                     logger.error("ML API error for application {}: {}", application.getId(), response.getStatusCode());
+                    // Return error response - do not use fallback
                     return createErrorResponse("ML API error: " + response.getStatusCode());
                 }
             } catch (Exception e) {
                 logger.error("Error during ML API call for application {}: {}", application.getId(), e.getMessage(), e);
                 
-                // Instead of failing, return a default fallback evaluation
-                // This allows processing to continue even if the ML service is unavailable
-                logger.info("Using fallback credit evaluation for application {}", application.getId());
-                return createFallbackEvaluation(application, financialInfo);
+                // Do not use fallback evaluation - let the caller handle the failure properly
+                return createErrorResponse("ML API unavailable: " + e.getMessage());
             }
             
         } catch (Exception e) {
@@ -102,50 +103,49 @@ public class LoanMLService {
         if (mlDecision.containsKey("error")) {
             logger.warn("Error in ML decision for application {}: {}", 
                     application.getId(), mlDecision.get("error"));
+            // Set status to REVIEW_NEEDED when ML API fails
             application.setStatus("REVIEW_NEEDED");
             return application;
         }
         
-        // Extract decision data - first try the direct ML model response
+        // Strictly follow the ML API decision
         boolean isApproved = false;
-        double approvalProbability = 0.0;
         
+        // Check for is_approved flag (primary decision point)
         if (mlDecision.containsKey("is_approved")) {
-            isApproved = (boolean) mlDecision.get("is_approved");
-        } else if (mlDecision.containsKey("approval_probability")) {
-            // Use approval probability threshold if direct approval not available
-            approvalProbability = ((Number) mlDecision.get("approval_probability")).doubleValue();
+            isApproved = Boolean.TRUE.equals(mlDecision.get("is_approved"));
+            logger.info("ML decision based on is_approved = {}", isApproved);
+            
+            // Set status based directly on ML API response
+            application.setStatus(isApproved ? "APPROVED" : "DENIED");
+            logger.info("Application {} status set to {} based on direct ML decision", 
+                    application.getId(), application.getStatus());
+        } 
+        // Only use approval_probability if is_approved is not present
+        else if (mlDecision.containsKey("approval_probability")) {
+            double approvalProbability = ((Number) mlDecision.get("approval_probability")).doubleValue();
             isApproved = approvalProbability >= 0.7; // 70% threshold
-        } else {
-            // Use credit score as a fallback
-            Integer creditScore = null;
-            if (mlDecision.containsKey("creditScore")) {
-                creditScore = ((Number) mlDecision.get("creditScore")).intValue();
-                
-                // Basic credit score threshold: 660 is common minimum for approval
-                isApproved = creditScore >= 660;
-            } else {
-                // Can't determine approval without any decision metrics
-                logger.warn("No decision metrics (is_approved, approval_probability, or creditScore) found for application {}", 
-                        application.getId());
-                application.setStatus("REVIEW_NEEDED");
-                return application;
-            }
+            logger.info("ML decision based on approval_probability = {}, isApproved = {}", 
+                    approvalProbability, isApproved);
+            
+            // Set status based on probability threshold
+            application.setStatus(isApproved ? "APPROVED" : "DENIED");
+            logger.info("Application {} status set to {} based on approval probability", 
+                    application.getId(), application.getStatus());
+        } 
+        else {
+            // No approval information available - require manual review
+            logger.warn("No approval decision metrics in ML response for application {}", 
+                    application.getId());
+            application.setStatus("REVIEW_NEEDED");
+            return application;
         }
-        
-        // Update application status
-        application.setStatus(isApproved ? "APPROVED" : "DENIED");
-        logger.info("Application {} status set to {}", application.getId(), application.getStatus());
         
         // Set ML-predicted credit score if available
         if (mlDecision.containsKey("predicted_credit_score")) {
             Double predictedScore = ((Number) mlDecision.get("predicted_credit_score")).doubleValue();
             application.setCreditScore(predictedScore);
             logger.info("Set ML-predicted credit score {} for application {}", predictedScore, application.getId());
-        } else if (mlDecision.containsKey("creditScore")) {
-            Double calculatedScore = ((Number) mlDecision.get("creditScore")).doubleValue();
-            application.setCreditScore(calculatedScore);
-            logger.info("Set calculated credit score {} for application {}", calculatedScore, application.getId());
         }
         
         // Get existing credit evaluation data or create new map
@@ -154,42 +154,29 @@ public class LoanMLService {
             creditEvaluationData = new HashMap<>();
         }
         
-        // Add ML decision data to credit evaluation data
-        if (mlDecision.containsKey("approval_probability")) {
-            creditEvaluationData.put("approval_probability", mlDecision.get("approval_probability"));
+        // Store all ML decision data in credit evaluation data
+        for (Map.Entry<String, Object> entry : mlDecision.entrySet()) {
+            creditEvaluationData.put(entry.getKey(), entry.getValue());
         }
         
+        // Format approved amount
         if (mlDecision.containsKey("approved_amount")) {
             creditEvaluationData.put("approved_amount", mlDecision.get("approved_amount"));
-        } else if (isApproved) {
-            // If approved but no approved amount provided, use requested amount
-            creditEvaluationData.put("approved_amount", application.getRequestedAmount().doubleValue());
         } else {
-            // If denied, set approved amount to 0
-            creditEvaluationData.put("approved_amount", 0.0);
+            // Set approved amount based on ML approval decision
+            creditEvaluationData.put("approved_amount", isApproved ? 
+                application.getRequestedAmount().doubleValue() : 0.0);
         }
         
-        if (mlDecision.containsKey("interest_rate")) {
+        // Format interest rate if available
+        if (mlDecision.containsKey("interest_rate") && mlDecision.get("interest_rate") != null) {
             Double interestRate = ((Number) mlDecision.get("interest_rate")).doubleValue();
             creditEvaluationData.put("interest_rate", interestRate);
             // Add formatted interest rate string for display
             creditEvaluationData.put("interest_rate_formatted", String.format("%.2f%%", interestRate * 100));
-        } else {
-            // Use a default interest rate based on credit score if not provided
-            Integer creditScore = application.getCreditScore() != null ? 
-                    application.getCreditScore().intValue() : 650;
-            double baseRate = 0.05; // 5% base rate
-            if (creditScore < 660) baseRate += 0.02;
-            else if (creditScore < 720) baseRate += 0.01;
-            
-            creditEvaluationData.put("interest_rate", baseRate);
-            creditEvaluationData.put("interest_rate_formatted", String.format("%.2f%%", baseRate * 100));
         }
         
-        // Add is_approved flag for consistency
-        creditEvaluationData.put("is_approved", isApproved);
-        
-        // Update the application with the enhanced credit evaluation data
+        // Update the application with the ML data
         application.setCreditEvaluationData(creditEvaluationData);
         
         return application;
@@ -201,137 +188,250 @@ public class LoanMLService {
     private Map<String, Object> prepareMLRequestData(LoanApplication application, FinancialInfo financialInfo, PersonalInfo personalInfo) {
         Map<String, Object> requestData = new HashMap<>();
         
-        // Extract personal information
-        int age = 0;
-        if (personalInfo != null && personalInfo.getDateOfBirth() != null) {
-            age = java.time.Period.between(personalInfo.getDateOfBirth(), java.time.LocalDate.now()).getYears();
-        }
-        
-        String province = "";
-        if (personalInfo != null && personalInfo.getAddress() != null) {
-            province = personalInfo.getAddress().getProvince();
-        }
-        
-        // Extract employment information
-        String employmentStatus = "Unemployed";
-        int monthsEmployed = 0;
-        
-        if (financialInfo != null && financialInfo.getEmploymentDetails() != null) {
-            List<EmploymentHistory> employments = financialInfo.getEmploymentDetails();
+        try {
+            // Log the input data for debugging purposes
+            logger.info("Preparing ML request data for application ID: {}", application.getId());
             
-            if (!employments.isEmpty()) {
-                // Get the most recent employment
-                Optional<EmploymentHistory> currentEmployment = employments.stream()
-                        .filter(e -> e.getEndDate() == null)
-                        .findFirst();
+            // Extract personal information
+            int age = 0;
+            if (personalInfo != null && personalInfo.getDateOfBirth() != null) {
+                age = java.time.Period.between(personalInfo.getDateOfBirth(), java.time.LocalDate.now()).getYears();
+                logger.info("Calculated age: {} from DOB: {}", age, personalInfo.getDateOfBirth());
+            }
+            
+            String province = "";
+            if (personalInfo != null && personalInfo.getAddress() != null) {
+                province = personalInfo.getAddress().getProvince();
+                logger.info("Province from address: {}", province);
+            }
+            
+            // Extract employment information
+            String employmentStatus = "Unemployed";
+            int monthsEmployed = 0;
+            
+            if (financialInfo != null && financialInfo.getEmploymentDetails() != null) {
+                List<EmploymentHistory> employments = financialInfo.getEmploymentDetails();
                 
-                if (currentEmployment.isPresent()) {
-                    employmentStatus = currentEmployment.get().getEmploymentType();
-                } else {
-                    employmentStatus = employments.get(0).getEmploymentType();
+                if (!employments.isEmpty()) {
+                    // Get the most recent employment
+                    Optional<EmploymentHistory> currentEmployment = employments.stream()
+                            .filter(e -> e.getEndDate() == null)
+                            .findFirst();
+                    
+                    if (currentEmployment.isPresent()) {
+                        employmentStatus = currentEmployment.get().getEmploymentType();
+                        // Use the duration months directly from the employment history
+                        monthsEmployed = currentEmployment.get().getDurationMonths() != null ? 
+                                        currentEmployment.get().getDurationMonths() : 0;
+                    } else {
+                        employmentStatus = employments.get(0).getEmploymentType();
+                        monthsEmployed = employments.get(0).getDurationMonths() != null ? 
+                                        employments.get(0).getDurationMonths() : 0;
+                    }
+                    
+                    // Log employment calculation for debugging
+                    logger.info("Employment status: {}, Months employed: {}", employmentStatus, monthsEmployed);
                 }
-                
-                // Sum up months employed across all jobs
-                monthsEmployed = employments.stream()
-                        .mapToInt(emp -> emp.getDurationMonths() != null ? emp.getDurationMonths() : 0)
-                        .sum();
-                
-                // Log employment calculation for debugging
-                logger.info("Total months employed: {} (across {} jobs)", 
-                    monthsEmployed, employments.size());
             }
-        }
-        
-        // Extract financial information
-        double annualIncome = 0.0;
-        if (financialInfo != null && financialInfo.getMonthlyIncome() != null) {
-            // Convert monthly to annual
-            annualIncome = financialInfo.getMonthlyIncome().multiply(BigDecimal.valueOf(12)).doubleValue();
-        }
-        
-        double selfReportedDebt = 0.0;
-        if (financialInfo != null && financialInfo.getEstimatedDebts() != null) {
-            selfReportedDebt = financialInfo.getEstimatedDebts().doubleValue();
-        }
-        
-        double selfReportedExpenses = 0.0;
-        if (financialInfo != null && financialInfo.getMonthlyExpenses() != null) {
-            selfReportedExpenses = financialInfo.getMonthlyExpenses().doubleValue();
-        }
-        
-        double totalCreditLimit = 0.0;
-        if (financialInfo != null && financialInfo.getCurrentCreditLimit() != null) {
-            totalCreditLimit = financialInfo.getCurrentCreditLimit().doubleValue();
-        }
-        
-        double creditUtilization = 0.0;
-        if (financialInfo != null && financialInfo.getCreditUtilization() != null) {
-            creditUtilization = financialInfo.getCreditUtilization().doubleValue();
-        }
-        
-        // Number of open accounts - use debt types count as a proxy
-        int numOpenAccounts = 0;
-        if (financialInfo != null && financialInfo.getExistingDebts() != null) {
-            numOpenAccounts = financialInfo.getExistingDebts().size();
-        }
-        
-        // Default to 0 credit inquiries
-        int numCreditInquiries = 0;
-        
-        // Monthly expenses - use from financial info
-        double monthlyExpenses = 0.0;
-        if (financialInfo != null && financialInfo.getMonthlyExpenses() != null) {
-            monthlyExpenses = financialInfo.getMonthlyExpenses().doubleValue();
-        }
-        
-        // DTI calculation
-        double dti = 0.0;
-        if (financialInfo != null && financialInfo.getDebtToIncomeRatio() != null) {
-            dti = financialInfo.getDebtToIncomeRatio().multiply(BigDecimal.valueOf(100)).doubleValue();
-        }
-        
-        // Payment history - analyze from debts
-        String paymentHistory = "On Time";
-        if (application.getCreditEvaluationData() != null && application.getCreditEvaluationData().containsKey("paymentHistoryRating")) {
-            String rating = (String) application.getCreditEvaluationData().get("paymentHistoryRating");
-            if ("Fair".equals(rating)) {
-                paymentHistory = "Late < 30";
-            } else if ("Poor".equals(rating)) {
-                paymentHistory = "Late > 30";
+            
+            // Extract financial information
+            double annualIncome = 0.0;
+            if (financialInfo != null && financialInfo.getMonthlyIncome() != null) {
+                // Convert monthly to annual
+                annualIncome = financialInfo.getMonthlyIncome().multiply(BigDecimal.valueOf(12)).doubleValue();
+                logger.info("Annual income calculated: {} from monthly income: {}", 
+                          annualIncome, financialInfo.getMonthlyIncome());
             }
+            
+            double selfReportedDebt = 0.0;
+            if (financialInfo != null && financialInfo.getEstimatedDebts() != null) {
+                selfReportedDebt = financialInfo.getEstimatedDebts().doubleValue();
+                logger.info("Self-reported debt: {}", selfReportedDebt);
+            }
+            
+            double selfReportedExpenses = 0.0;
+            if (financialInfo != null && financialInfo.getMonthlyExpenses() != null) {
+                selfReportedExpenses = financialInfo.getMonthlyExpenses().doubleValue();
+                logger.info("Self-reported expenses: {}", selfReportedExpenses);
+            }
+            
+            double totalCreditLimit = 0.0;
+            if (financialInfo != null && financialInfo.getCurrentCreditLimit() != null) {
+                totalCreditLimit = financialInfo.getCurrentCreditLimit().doubleValue();
+                logger.info("Total credit limit: {}", totalCreditLimit);
+            }
+            
+            // Credit utilization calculation with proper handling of over-limit situations
+            double creditUtilization = 0.0;
+            if (financialInfo != null) {
+                BigDecimal creditLimit = financialInfo.getCurrentCreditLimit();
+                BigDecimal creditUsage = financialInfo.getCreditTotalUsage();
+                
+                if (creditLimit != null && creditUsage != null) {
+                    if (creditLimit.compareTo(BigDecimal.ZERO) > 0) {
+                        // Calculate utilization as a percentage
+                        BigDecimal utilization = creditUsage.divide(creditLimit, 4, java.math.RoundingMode.HALF_UP)
+                                .multiply(BigDecimal.valueOf(100));
+                        
+                        creditUtilization = utilization.doubleValue();
+                        
+                        // Log warning if over 100%
+                        if (creditUtilization > 100.0) {
+                            logger.warn("Credit utilization is over 100%: {}% for application ID: {}", 
+                                       creditUtilization, application.getId());
+                        }
+                        
+                        logger.info("Credit utilization calculated: {}%", creditUtilization);
+                    } else {
+                        logger.warn("Credit limit is zero, cannot calculate utilization for application ID: {}", 
+                                  application.getId());
+                    }
+                } else {
+                    logger.warn("Missing credit limit or usage data for application ID: {}", application.getId());
+                }
+            }
+            
+            // Number of open accounts - use debt types count as a proxy
+            int numOpenAccounts = 0;
+            if (financialInfo != null && financialInfo.getExistingDebts() != null) {
+                numOpenAccounts = financialInfo.getExistingDebts().size();
+                logger.info("Number of open accounts: {}", numOpenAccounts);
+            }
+            
+            // Default to 0 credit inquiries
+            int numCreditInquiries = 0;
+            
+            // Monthly expenses - use from financial info
+            double monthlyExpenses = 0.0;
+            if (financialInfo != null && financialInfo.getMonthlyExpenses() != null) {
+                monthlyExpenses = financialInfo.getMonthlyExpenses().doubleValue();
+                logger.info("Monthly expenses: {}", monthlyExpenses);
+            }
+            
+            // DTI calculation - use the one from financial info if available
+            double dti = 0.0;
+            if (financialInfo != null) {
+                if (financialInfo.getDebtToIncomeRatio() != null) {
+                    dti = financialInfo.getDebtToIncomeRatio().multiply(BigDecimal.valueOf(100)).doubleValue();
+                } else if (financialInfo.getMonthlyIncome() != null && 
+                          financialInfo.getMonthlyIncome().compareTo(BigDecimal.ZERO) > 0) {
+                    // Calculate it if not available but we have income and expenses
+                    BigDecimal annualizedIncome = financialInfo.getMonthlyIncome().multiply(BigDecimal.valueOf(12));
+                    BigDecimal totalDebt = financialInfo.getEstimatedDebts() != null ? 
+                                          financialInfo.getEstimatedDebts() : BigDecimal.ZERO;
+                    if (financialInfo.getTotalDebts() != null) {
+                        totalDebt = totalDebt.add(financialInfo.getTotalDebts());
+                    }
+                    
+                    BigDecimal loanImpact = application.getRequestedAmount().multiply(BigDecimal.valueOf(0.03));
+                    BigDecimal monthlyExpense = financialInfo.getMonthlyExpenses() != null ? 
+                                              financialInfo.getMonthlyExpenses() : BigDecimal.ZERO;
+                    
+                    BigDecimal numerator = monthlyExpense.add(totalDebt).add(loanImpact);
+                    dti = numerator.divide(annualizedIncome, 4, java.math.RoundingMode.HALF_UP).doubleValue() * 100;
+                }
+                logger.info("DTI calculated: {}", dti);
+            }
+            
+            // Extract payment history from debts
+            String paymentHistory = "On-time";
+            if (financialInfo != null && financialInfo.getExistingDebts() != null) {
+                // Count late payments
+                long latePayments = financialInfo.getExistingDebts().stream()
+                        .filter(debt -> debt.getPaymentHistory() != null && !debt.getPaymentHistory().equals("On-time"))
+                        .count();
+                        
+                // Format payment history according to ML API expectations
+                // The ML API expects specific values: "On-time", "Late < 30", "Late 30-60", "Late > 60"
+                if (latePayments > 0) {
+                    // Find the most severe late payment
+                    Optional<String> worstPaymentHistory = financialInfo.getExistingDebts().stream()
+                            .map(Debt::getPaymentHistory)
+                            .filter(ph -> ph != null && !ph.equals("On-time"))
+                            .max(Comparator.naturalOrder());
+                            
+                    if (worstPaymentHistory.isPresent()) {
+                        paymentHistory = standardizePaymentHistory(worstPaymentHistory.get());
+                        logger.info("Using worst payment history: {}", paymentHistory);
+                    }
+                }
+            }
+            
+            logger.info("Payment history: {}", paymentHistory);
+            
+            // Requested amount
+            double requestedAmount = 0.0;
+            if (application.getRequestedAmount() != null) {
+                requestedAmount = application.getRequestedAmount().doubleValue();
+                logger.info("Requested amount: {}", requestedAmount);
+            }
+            
+            // Estimated debt - use from financial info
+            double estimatedDebt = 0.0;
+            if (financialInfo != null && financialInfo.getEstimatedDebts() != null) {
+                estimatedDebt = financialInfo.getEstimatedDebts().doubleValue();
+                logger.info("Estimated debt: {}", estimatedDebt);
+            }
+            
+            // User-provided credit score - directly from financial info
+            Integer creditScore = null;
+            if (financialInfo != null) {
+                if (financialInfo.getSystemCreditScore() != null) {
+                    creditScore = financialInfo.getSystemCreditScore();
+                    logger.info("Using system calculated credit score: {}", creditScore);
+                } else if (financialInfo.getCreditScore() != null) {
+                    creditScore = financialInfo.getCreditScore();
+                    logger.info("Using user-provided credit score: {}", creditScore);
+                }
+            }
+            
+            // Populate the request data map
+            requestData.put("age", age);
+            requestData.put("province", province);
+            requestData.put("employment_status", employmentStatus);
+            requestData.put("months_employed", monthsEmployed);
+            requestData.put("annual_income", annualIncome);
+            requestData.put("self_reported_debt", selfReportedDebt);
+            requestData.put("self_reported_expenses", selfReportedExpenses);
+            requestData.put("total_credit_limit", totalCreditLimit);
+            requestData.put("credit_utilization", creditUtilization);
+            requestData.put("num_open_accounts", numOpenAccounts);
+            requestData.put("num_credit_inquiries", numCreditInquiries);
+            requestData.put("monthly_expenses", monthlyExpenses);
+            requestData.put("dti", dti);
+            requestData.put("payment_history", paymentHistory);
+            requestData.put("requested_amount", requestedAmount);
+            requestData.put("estimated_debt", estimatedDebt);
+            
+            // Include credit score if available (for ML models that use it)
+            if (creditScore != null) {
+                requestData.put("credit_score", creditScore);
+            }
+            
+            // Log final prepared ML request data for verification
+            logger.info("Final ML request data: {}", requestData);
+            
+        } catch (Exception e) {
+            logger.error("Error preparing ML request data: {}", e.getMessage(), e);
+            // Don't create fallback data - let the API call fail properly
+            throw new RuntimeException("Failed to prepare ML request data: " + e.getMessage(), e);
         }
-        
-        // Requested amount
-        double requestedAmount = 0.0;
-        if (application.getRequestedAmount() != null) {
-            requestedAmount = application.getRequestedAmount().doubleValue();
-        }
-        
-        // Estimated debt - use from financial info
-        double estimatedDebt = 0.0;
-        if (financialInfo != null && financialInfo.getEstimatedDebts() != null) {
-            estimatedDebt = financialInfo.getEstimatedDebts().doubleValue();
-        }
-        
-        // Populate the request data map
-        requestData.put("age", age);
-        requestData.put("province", province);
-        requestData.put("employment_status", employmentStatus);
-        requestData.put("months_employed", monthsEmployed);
-        requestData.put("annual_income", annualIncome);
-        requestData.put("self_reported_debt", selfReportedDebt);
-        requestData.put("self_reported_expenses", selfReportedExpenses);
-        requestData.put("total_credit_limit", totalCreditLimit);
-        requestData.put("credit_utilization", creditUtilization);
-        requestData.put("num_open_accounts", numOpenAccounts);
-        requestData.put("num_credit_inquiries", numCreditInquiries);
-        requestData.put("monthly_expenses", monthlyExpenses);
-        requestData.put("dti", dti);
-        requestData.put("payment_history", paymentHistory);
-        requestData.put("requested_amount", requestedAmount);
-        requestData.put("estimated_debt", estimatedDebt);
         
         return requestData;
+    }
+    
+    /**
+     * Debug method to expose the request data preparation for logging/debugging
+     * This method has no side effects and just returns what would be sent
+     */
+    public Map<String, Object> debugPrepareMLRequestData(LoanApplication application, FinancialInfo financialInfo, PersonalInfo personalInfo) {
+        try {
+            return prepareMLRequestData(application, financialInfo, personalInfo);
+        } catch (Exception e) {
+            Map<String, Object> errorMap = new HashMap<>();
+            errorMap.put("error", "Failed to prepare ML data: " + e.getMessage());
+            return errorMap;
+        }
     }
     
     /**
@@ -340,43 +440,36 @@ public class LoanMLService {
     private Map<String, Object> createErrorResponse(String errorMessage) {
         Map<String, Object> errorResponse = new HashMap<>();
         errorResponse.put("error", errorMessage);
-        errorResponse.put("is_approved", false);
+        // Don't include default approval values
         return errorResponse;
     }
     
     /**
-     * Create a fallback evaluation when the ML API is unavailable
+     * Standardize payment history to match ML API expectations
      */
-    private Map<String, Object> createFallbackEvaluation(LoanApplication application, FinancialInfo financialInfo) {
-        Map<String, Object> fallback = new HashMap<>();
-        
-        // Use the credit score from financial info as the basis for decision
-        Integer creditScore = financialInfo.getSystemCreditScore();
-        if (creditScore == null && financialInfo.getCreditScore() != null) {
-            creditScore = financialInfo.getCreditScore();
-        }
-        if (creditScore == null) {
-            creditScore = 650; // Default score if none available
+    private String standardizePaymentHistory(String rawPaymentHistory) {
+        if (rawPaymentHistory == null) {
+            return "On-time";
         }
         
-        // Determine approval based on credit score
-        boolean isApproved = creditScore >= 660;
+        String normalized = rawPaymentHistory.trim().toLowerCase();
         
-        // Set basic fields
-        fallback.put("fallback", true);
-        fallback.put("is_approved", isApproved);
-        fallback.put("approval_probability", isApproved ? 0.85 : 0.3);
-        fallback.put("approved_amount", isApproved ? application.getRequestedAmount().doubleValue() : 0.0);
+        // Convert to one of the expected formats: "On-time", "Late < 30", "Late 30-60", "Late > 60"
+        if (normalized.contains("on time") || normalized.contains("on-time") || normalized.equals("good")) {
+            return "On-time";
+        } else if (normalized.contains("< 30") || normalized.contains("less than 30") || 
+                   normalized.contains("under 30") || normalized.contains("1-29")) {
+            return "Late < 30";
+        } else if (normalized.contains("30-60") || normalized.contains("30 to 60") || 
+                   normalized.contains("between 30 and 60")) {
+            return "Late 30-60";
+        } else if (normalized.contains("> 60") || normalized.contains("over 60") || 
+                   normalized.contains("more than 60") || normalized.contains("90+")) {
+            return "Late > 60";
+        }
         
-        // Calculate interest rate based on credit score (simplified version)
-        double baseRate = 0.05; // 5%
-        if (creditScore < 660) baseRate += 0.02;
-        else if (creditScore < 720) baseRate += 0.01;
-        
-        fallback.put("interest_rate", baseRate);
-        fallback.put("creditScore", creditScore);
-        
-        logger.info("Created fallback evaluation for application {}: {}", application.getId(), fallback);
-        return fallback;
+        // Default mapping for unrecognized formats
+        logger.warn("Unrecognized payment history format: '{}', defaulting to 'Late < 30'", rawPaymentHistory);
+        return "Late < 30";
     }
 } 

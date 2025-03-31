@@ -41,6 +41,12 @@ public class LoanApplication {
     @Transient
     private Map<String, Object> creditEvaluationData;
 
+    @OneToOne(mappedBy = "loanApplication", cascade = CascadeType.ALL)
+    private FinancialInfo financialInfo;
+
+    @OneToOne(mappedBy = "loanApplication", cascade = CascadeType.ALL)
+    private PersonalInfo personalInfo;
+
     // Add status field to constructor
     public LoanApplication() {
         this.createdAt = LocalDateTime.now();
@@ -94,5 +100,21 @@ public class LoanApplication {
     
     public void setCreditEvaluationData(Map<String, Object> creditEvaluationData) {
         this.creditEvaluationData = creditEvaluationData;
+    }
+
+    public FinancialInfo getFinancialInfo() {
+        return financialInfo;
+    }
+
+    public void setFinancialInfo(FinancialInfo financialInfo) {
+        this.financialInfo = financialInfo;
+    }
+
+    public PersonalInfo getPersonalInfo() {
+        return personalInfo;
+    }
+
+    public void setPersonalInfo(PersonalInfo personalInfo) {
+        this.personalInfo = personalInfo;
     }
 }

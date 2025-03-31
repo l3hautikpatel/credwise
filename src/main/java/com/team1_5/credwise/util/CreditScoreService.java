@@ -114,12 +114,28 @@ public class CreditScoreService {
                 
                 if (creditLimit > 0) {
                     double utilizationPercent = (usedCredit / creditLimit) * 100;
+                    
+                    // Log warning if credit utilization is over 100%
+                    if (utilizationPercent > 100.0) {
+                        logger.warn("Credit utilization is over 100%: {}% - this may negatively impact credit score", 
+                                utilizationPercent);
+                        System.out.println("⚠️ WARNING: Credit utilization is over 100%: " + utilizationPercent + "%");
+                    }
+                    
                     result.put("creditUtilization", utilizationPercent);
                     result.put("creditUtilizationRating", 
                         utilizationPercent < 30 ? "Good" : 
                         utilizationPercent < 50 ? "Fair" : 
                         utilizationPercent < 75 ? "High" : "Very High");
+                    
+                    logger.info("Credit utilization calculated: {}%", utilizationPercent);
+                } else {
+                    logger.warn("Credit limit is zero or negative, using minimum value to prevent division by zero");
+                    result.put("creditUtilization", 100.0); // Max utilization if limit is invalid
+                    result.put("creditUtilizationRating", "Very High");
                 }
+            } else {
+                logger.info("Credit limit or used credit data not available, skipping utilization calculation");
             }
             
             System.out.println("Credit score calculation completed successfully: " + result);
@@ -231,8 +247,13 @@ public class CreditScoreService {
                 creditLimit = getDoubleValue(creditData, "creditLimit", 
                               getDoubleValue(creditData, "currentCreditLimit", 1000.0));
             }
+            
             // Ensure credit limit is never zero to prevent division by zero
-            creditLimit = Math.max(creditLimit, 1000.0);
+            if (creditLimit <= 0) {
+                logger.warn("Credit limit is zero or negative ({}), using minimum value to prevent errors", creditLimit);
+                System.out.println("⚠️ WARNING: Credit limit is invalid: " + creditLimit + ", using minimum value 1000.0");
+                creditLimit = 1000.0;
+            }
             
             // Employment status: check multiple possible field names
             String employmentStatus = getStringValue(creditData, "employmentStatus", null);

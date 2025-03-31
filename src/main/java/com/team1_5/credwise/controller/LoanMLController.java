@@ -15,10 +15,13 @@ import com.team1_5.credwise.util.CanadianCreditScoringSystem;
 import com.team1_5.credwise.util.CreditScoreService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import com.team1_5.credwise.dto.LoanApplicationResultResponse;
+import com.team1_5.credwise.service.LoanApplicationService;
+import com.team1_5.credwise.dto.LoanMLResponse;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -31,7 +34,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/api/loan-applications")
+@RequestMapping("/api/ml")
 public class LoanMLController {
 
     private static final Logger logger = LoggerFactory.getLogger(LoanMLController.class);
@@ -41,6 +44,7 @@ public class LoanMLController {
     private final PersonalInfoRepository personalInfoRepository;
     private final CreditScoreService creditScoreService;
     private final LoanApplicationResultService loanApplicationResultService;
+    private final LoanApplicationService loanApplicationService;
 
     public LoanMLController(
             LoanMLService loanMLService,
@@ -48,13 +52,15 @@ public class LoanMLController {
             FinancialInfoRepository financialInfoRepository,
             PersonalInfoRepository personalInfoRepository,
             CreditScoreService creditScoreService,
-            LoanApplicationResultService loanApplicationResultService) {
+            LoanApplicationResultService loanApplicationResultService,
+            LoanApplicationService loanApplicationService) {
         this.loanMLService = loanMLService;
         this.loanApplicationRepository = loanApplicationRepository;
         this.financialInfoRepository = financialInfoRepository;
         this.personalInfoRepository = personalInfoRepository;
         this.creditScoreService = creditScoreService;
         this.loanApplicationResultService = loanApplicationResultService;
+        this.loanApplicationService = loanApplicationService;
     }
 
     /**
@@ -63,201 +69,45 @@ public class LoanMLController {
      * @param applicationId The loan application ID
      * @return Response with the application status and decision details
      */
-    @PostMapping("/{applicationId}/process-ml")
-    @Transactional
-    public ResponseEntity<Map<String, Object>> processApplicationWithML(@PathVariable Long applicationId) {
-        // Find application
-        LoanApplication application = loanApplicationRepository.findById(applicationId)
-                .orElseThrow(() -> new ResourceNotFoundException("Loan application not found: " + applicationId));
-        
-        // Get related financial info
-        FinancialInfo financialInfo = financialInfoRepository.findByLoanApplicationId(applicationId)
-                .orElseThrow(() -> new ResourceNotFoundException("Financial info not found for application: " + applicationId));
-        
-        // Get related personal info
-        PersonalInfo personalInfo = personalInfoRepository.findByLoanApplicationId(applicationId)
-                .orElseThrow(() -> new ResourceNotFoundException("Personal info not found for application: " + applicationId));
-        
-        // 1. Calculate credit score using the comprehensive scoring system
-        Map<String, Object> creditData = prepareCreditData(application, financialInfo);
-        Map<String, Object> creditEvaluation = creditScoreService.calculateCreditScore(creditData, financialInfo);
-        
-        // 2. Call ML service only for specific decision factors
-        Map<String, Object> mlDecision = loanMLService.getLoanDecision(application, financialInfo, personalInfo);
-        
-        // 3. Combine credit evaluation and ML decision data
-        Map<String, Object> combinedDecision = new HashMap<>(creditEvaluation);
-        
-        // Only take specific fields from ML model
-        if (mlDecision.containsKey("approval_probability")) {
-            combinedDecision.put("approval_probability", mlDecision.get("approval_probability"));
-        }
-        if (mlDecision.containsKey("is_approved")) {
-            combinedDecision.put("is_approved", mlDecision.get("is_approved"));
-        }
-        if (mlDecision.containsKey("approved_amount")) {
-            combinedDecision.put("approved_amount", mlDecision.get("approved_amount"));
-        }
-        if (mlDecision.containsKey("interest_rate")) {
-            combinedDecision.put("interest_rate", mlDecision.get("interest_rate"));
-        }
-        
-        // 4. Update application with combined decision data
-        application.setCreditEvaluationData(combinedDecision);
-        application = loanMLService.applyMLDecision(application, combinedDecision);
-        
-        // 5. Save updated application
-        application = loanApplicationRepository.save(application);
-        
-        // 6. Save updated financial info with system credit score and eligibility score
-        financialInfo = financialInfoRepository.save(financialInfo);
-        
-        // 7. Generate loan application result
+    @PostMapping("/process/{applicationId}")
+    public ResponseEntity<?> processApplication(@PathVariable Long applicationId) {
         try {
-            LoanApplicationResultResponse result = loanApplicationResultService.generateLoanApplicationResult(applicationId);
-            logger.info("Generated loan application result: {}", result.getStatus());
-        } catch (Exception e) {
-            logger.error("Error generating loan application result: {}", e.getMessage(), e);
-        }
-        
-        // 8. Prepare response
-        Map<String, Object> response = new HashMap<>();
-        response.put("applicationId", application.getId());
-        response.put("status", application.getStatus());
-        response.put("systemCreditScore", financialInfo.getSystemCreditScore());
-        response.put("eligibilityScore", financialInfo.getEligibilityScore());
-        response.put("decision", combinedDecision);
-        
-        return ResponseEntity.ok(response);
-    }
-    
-    /**
-     * Prepare credit data for the credit scoring system
-     */
-    private Map<String, Object> prepareCreditData(LoanApplication application, FinancialInfo financialInfo) {
-        Map<String, Object> creditData = new HashMap<>();
-        
-        try {
-            System.out.println("Preparing credit data for ML processing - App ID: " + 
-                              application.getId());
+            LoanApplication application = loanApplicationService.getLoanApplication(applicationId);
+            FinancialInfo financialInfo = application.getFinancialInfo();
+            PersonalInfo personalInfo = application.getPersonalInfo();
             
-            // Loan details
-            creditData.put("loanType", application.getProductType());
-            creditData.put("loanRequest", safeDoubleValue(application.getRequestedAmount()));
-            creditData.put("requestedAmount", safeDoubleValue(application.getRequestedAmount()));
-            creditData.put("tenure", application.getRequestedTermMonths());
-            creditData.put("requestedTermMonths", application.getRequestedTermMonths());
-            
-            if (financialInfo != null) {
-                // Core financial data with unified keys 
-                creditData.put("income", safeDoubleValue(financialInfo.getMonthlyIncome()));
-                creditData.put("monthlyIncome", safeDoubleValue(financialInfo.getMonthlyIncome()));
-                
-                creditData.put("expenses", safeDoubleValue(financialInfo.getMonthlyExpenses()));
-                creditData.put("monthlyExpenses", safeDoubleValue(financialInfo.getMonthlyExpenses()));
-                
-                creditData.put("debt", safeDoubleValue(financialInfo.getEstimatedDebts()));
-                creditData.put("estimatedDebts", safeDoubleValue(financialInfo.getEstimatedDebts()));
-                
-                // Credit usage data
-                creditData.put("usedCredit", safeDoubleValue(financialInfo.getCreditTotalUsage()));
-                creditData.put("creditTotalUsage", safeDoubleValue(financialInfo.getCreditTotalUsage()));
-                
-                creditData.put("creditLimit", safeDoubleValue(financialInfo.getCurrentCreditLimit()));
-                creditData.put("currentCreditLimit", safeDoubleValue(financialInfo.getCurrentCreditLimit()));
-                
-                // Additional financial metrics
-                creditData.put("totalDebts", safeDoubleValue(financialInfo.getTotalDebts()));
-                creditData.put("creditUtilization", safeDoubleValue(financialInfo.getCreditUtilization()));
-                creditData.put("assets", safeDoubleValue(financialInfo.getTotalAssets()));
-                creditData.put("totalAssets", safeDoubleValue(financialInfo.getTotalAssets()));
-                
-                // Payment history
-                String paymentHistory = analyzePaymentHistory(financialInfo.getExistingDebts());
-                creditData.put("paymentHistory", paymentHistory);
-                
-                // Employment data
-                if (financialInfo.getEmploymentDetails() != null && !financialInfo.getEmploymentDetails().isEmpty()) {
-                    // Calculate total employment duration from all jobs
-                    int totalMonthsEmployed = financialInfo.getEmploymentDetails().stream()
-                            .mapToInt(employment -> employment.getDurationMonths() != null ? employment.getDurationMonths() : 0)
-                            .sum();
-                    creditData.put("monthsEmployed", totalMonthsEmployed);
-                    
-                    // Get current employment status
-                    String employmentStatus = financialInfo.getEmploymentDetails().stream()
-                            .filter(e -> e.getEndDate() == null)
-                            .findFirst()
-                            .map(e -> e.getEmploymentType())
-                            .orElse(financialInfo.getEmploymentDetails().get(0).getEmploymentType());
-                    creditData.put("employmentStatus", employmentStatus);
-                    
-                    // Estimate credit age based on employment
-                    creditData.put("creditAge", Math.max(totalMonthsEmployed, 6));
-                    
-                    // Log employment details for debugging
-                    System.out.println("Employment details: status=" + employmentStatus + ", totalMonths=" + totalMonthsEmployed);
-                } else {
-                    creditData.put("employmentStatus", "Unemployed");
-                    creditData.put("monthsEmployed", 0);
-                    creditData.put("creditAge", 6); // Minimum credit age
-                }
-                
-                // Debt types as a Set for consistency
-                Set<String> debtTypes = new HashSet<>();
-                if (financialInfo.getExistingDebts() != null) {
-                    debtTypes = financialInfo.getExistingDebts().stream()
-                            .map(debt -> debt.getDebtType())
-                            .filter(type -> type != null && !type.isEmpty())
-                            .collect(Collectors.toSet());
-                    
-                    // If no debt types but debt exists, add default
-                    if (debtTypes.isEmpty() && safeDoubleValue(financialInfo.getEstimatedDebts()) > 0) {
-                        debtTypes.add("Personal Loan");
-                    }
-                }
-                creditData.put("debtTypes", debtTypes);
-                
-                // Bank accounts
-                creditData.put("bankAccounts", financialInfo.getBankAccounts() != null ? 
-                              financialInfo.getBankAccounts() : 1);
-            } else {
-                // Default values if financial info is missing
-                System.out.println("WARNING: Financial info is null for application " + 
-                                  application.getId() + ", using defaults");
-                creditData.put("income", 3000.0);
-                creditData.put("expenses", 1500.0);
-                creditData.put("debt", 0.0);
-                creditData.put("usedCredit", 0.0);
-                creditData.put("creditLimit", 1000.0);
-                creditData.put("paymentHistory", "On-time");
-                creditData.put("employmentStatus", "Unemployed");
-                creditData.put("monthsEmployed", 0);
-                creditData.put("creditAge", 6);
-                creditData.put("assets", 0.0);
-                creditData.put("bankAccounts", 1);
-                creditData.put("debtTypes", new HashSet<String>());
+            if (financialInfo == null || personalInfo == null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body("Financial information or personal information is missing");
             }
             
-            System.out.println("Prepared credit data for ML: " + creditData);
+            // Get credit evaluation data
+            Map<String, Object> creditData = loanApplicationService.prepareCreditData(application);
+            
+            // Get ML decision
+            Map<String, Object> mlDecision = loanMLService.getLoanDecision(application, financialInfo, personalInfo);
+            
+            // Combine ML decision with credit data
+            Map<String, Object> combinedDecision = new HashMap<>();
+            combinedDecision.putAll(mlDecision);
+            combinedDecision.putAll(creditData);
+            
+            // Create response
+            LoanMLResponse response = new LoanMLResponse(
+                applicationId,
+                application.getStatus(),
+                financialInfo.getSystemCreditScore(),
+                financialInfo.getEligibilityScore(),
+                combinedDecision
+            );
+            
+            return ResponseEntity.ok(response);
             
         } catch (Exception e) {
-            System.out.println("Error preparing credit data for ML: " + e.getMessage());
-            e.printStackTrace();
-            
-            // Ensure minimum data is present
-            if (!creditData.containsKey("loanRequest")) {
-                creditData.put("loanRequest", safeDoubleValue(application.getRequestedAmount()));
-            }
-            if (!creditData.containsKey("income")) creditData.put("income", 3000.0);
-            if (!creditData.containsKey("expenses")) creditData.put("expenses", 1500.0);
-            if (!creditData.containsKey("debt")) creditData.put("debt", 0.0);
-            if (!creditData.containsKey("usedCredit")) creditData.put("usedCredit", 0.0);
-            if (!creditData.containsKey("creditLimit")) creditData.put("creditLimit", 1000.0);
-            if (!creditData.containsKey("paymentHistory")) creditData.put("paymentHistory", "On-time");
+            logger.error("Error processing application: " + e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body("Error processing application: " + e.getMessage());
         }
-        
-        return creditData;
     }
     
     /**

@@ -3,6 +3,7 @@ package com.team1_5.credwise.service;
 import com.team1_5.credwise.dto.LoanApplicationRequest;
 import com.team1_5.credwise.dto.LoanApplicationResponse;
 import com.team1_5.credwise.exception.LoanApplicationException;
+import com.team1_5.credwise.exception.ResourceNotFoundException;
 import com.team1_5.credwise.model.*;
 import com.team1_5.credwise.repository.*;
 import com.team1_5.credwise.util.CreditScoreService;
@@ -10,6 +11,8 @@ import jakarta.transaction.Transactional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.http.ResponseEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -37,6 +40,7 @@ public class LoanApplicationService {
     private final UserRepository userRepo;
     private final LoanMLService loanMLService;
     private final LoanApplicationResultService loanApplicationResultService;
+    private static final Logger logger = LoggerFactory.getLogger(LoanApplicationService.class);
 
     public LoanApplicationService(LoanApplicationRepository loanAppRepo,
                                   PersonalInfoRepository personalInfoRepo,
@@ -68,11 +72,43 @@ public class LoanApplicationService {
         validateRequest(request);
 
         try {
-            // Log the request for debugging
-            System.out.println("Processing loan application for user ID: " + userId);
-            System.out.println("Loan details: " + request.getLoanDetails().getProductType() + 
-                              ", Amount: " + request.getLoanDetails().getRequestedAmount());
+            // Log the full request JSON for debugging data flow
+            System.out.println("\n======== ORIGINAL API REQUEST ========");
+            System.out.println("User ID: " + userId);
+            System.out.println("Loan Type: " + request.getLoanDetails().getProductType());
+            System.out.println("Requested Amount: " + request.getLoanDetails().getRequestedAmount());
+            System.out.println("Term Months: " + request.getLoanDetails().getRequestedTermMonths());
             
+            // Log detailed financial information
+            System.out.println("\nFINANCIAL INFORMATION:");
+            System.out.println("Monthly Income: " + request.getFinancialInformation().getMonthlyIncome());
+            System.out.println("Monthly Expenses: " + request.getFinancialInformation().getMonthlyExpenses());
+            System.out.println("Estimated Debts: " + request.getFinancialInformation().getEstimatedDebts());
+            System.out.println("Credit Score: " + request.getFinancialInformation().getCreditScore());
+            System.out.println("Credit Limit: " + request.getFinancialInformation().getCurrentCreditLimit());
+            System.out.println("Credit Usage: " + request.getFinancialInformation().getCreditTotalUsage());
+            
+            // Calculate and log the credit utilization
+            if (request.getFinancialInformation().getCurrentCreditLimit().compareTo(BigDecimal.ZERO) > 0) {
+                BigDecimal utilization = request.getFinancialInformation().getCreditTotalUsage()
+                    .divide(request.getFinancialInformation().getCurrentCreditLimit(), 4, RoundingMode.HALF_UP)
+                    .multiply(BigDecimal.valueOf(100));
+                System.out.println("🔴 Calculated Credit Utilization: " + utilization + "%");
+                
+                // Alert if over 100%
+                if (utilization.compareTo(BigDecimal.valueOf(100)) > 0) {
+                    System.out.println("⚠️ WARNING: Credit utilization is over 100%!");
+                }
+            } else {
+                System.out.println("Credit Limit is zero, cannot calculate utilization");
+            }
+            
+            System.out.println("Employment Duration: " + 
+                (request.getFinancialInformation().getEmploymentDetails() != null && 
+                 !request.getFinancialInformation().getEmploymentDetails().isEmpty() ? 
+                 request.getFinancialInformation().getEmploymentDetails().get(0).getEmploymentDurationMonths() : "N/A"));
+            
+            // Continue with normal processing
             User user = userRepo.findById(userId)
                     .orElseThrow(() -> new LoanApplicationException("User not found: " + userId, HttpStatus.NOT_FOUND));
 
@@ -89,12 +125,14 @@ public class LoanApplicationService {
             System.out.println("Saved financial information with ID: " + financialInfo.getId());
 
             // 4. Prepare and calculate credit score
-            Map<String, Object> creditData = prepareCreditData(request, financialInfo);
+            Map<String, Object> creditData = prepareCreditData(application);
+            System.out.println("\n======== DATA SENT TO CREDIT SCORE CALCULATION ========");
+            System.out.println(mapToDebugString(creditData));
             
             // 5. Calculate credit score and get decision factors
             Map<String, Object> creditEvaluation = creditScoreService.calculateCreditScore(creditData, financialInfo);
-            System.out.println("Calculated credit score: " + 
-                             (creditEvaluation.containsKey("creditScore") ? creditEvaluation.get("creditScore") : "Not available"));
+            System.out.println("\n======== CREDIT SCORE CALCULATION RESULT ========");
+            System.out.println(mapToDebugString(creditEvaluation));
             
             // 6. Store the credit evaluation data for later use
             application.setCreditEvaluationData(creditEvaluation);
@@ -132,57 +170,78 @@ public class LoanApplicationService {
             
             // 8. Save documents
             if (request.getDocuments() != null && !request.getDocuments().isEmpty()) {
-            saveApplicationDocuments(application, request.getDocuments());
+                saveApplicationDocuments(application, request.getDocuments());
                 System.out.println("Saved " + request.getDocuments().size() + " documents");
             } else {
                 System.out.println("No documents to save");
             }
 
-            // 9. Process with ML service (new step)
+            // 9. Process with ML service - THIS IS THE PRIMARY DECISION POINT
+            boolean mlProcessingAttempted = false;
+            boolean mlProcessingSuccessful = false;
+            
             try {
                 System.out.println("Attempting to process application with ML service");
                 
-                // Capture the application ID before the lambda
-                final Long appId = application.getId();
-                
                 // Get required objects
+                final Long appId = application.getId();
                 PersonalInfo personalInfo = personalInfoRepo.findByLoanApplicationId(appId)
                         .orElseThrow(() -> new LoanApplicationException(
                                 "Personal info not found for application: " + appId, 
                                 HttpStatus.NOT_FOUND));
                 
                 if (loanMLService != null) {
-                    // Process with ML
+                    // Process with ML - this is the primary decision maker
+                    mlProcessingAttempted = true;
                     System.out.println("Processing application through ML service");
-                    application = processApplicationWithML(appId, personalInfo, financialInfo, loanMLService);
-                    System.out.println("Successfully processed application with ML service");
                     
-                    // Generate loan application result (this is now done inside processApplicationWithML)
+                    // Log what's being sent to ML service by capturing its request data preparation
+                    // This is temporary code to debug the request
+                    Map<String, Object> debugMLRequestData = loanMLService.debugPrepareMLRequestData(application, financialInfo, personalInfo);
+                    System.out.println("\n======== DATA PREPARED FOR ML MODEL API ========");
+                    System.out.println(mapToDebugString(debugMLRequestData));
+                    
+                    // Process normally
+                    application = processApplicationWithML(appId, personalInfo, financialInfo, loanMLService);
+                    
+                    // Check if ML processing was successful (decision made or review needed)
+                    mlProcessingSuccessful = application.getStatus() != null && 
+                                         !"SUBMITTED".equals(application.getStatus());
+                    
+                    System.out.println("ML processing completed with status: " + application.getStatus());
+                    
+                    // Generate result based on ML decision
+                    if ("APPROVED".equals(application.getStatus()) || "DENIED".equals(application.getStatus())) {
+                        try {
+                            loanApplicationResultService.generateLoanApplicationResult(appId);
+                            System.out.println("Generated result based on ML decision");
+                        } catch (Exception e) {
+                            System.out.println("Failed to generate result: " + e.getMessage());
+                        }
+                    }
                 } else {
                     System.out.println("LoanMLService is null - cannot process with ML");
-                    
-                    // Try to generate a result using just the credit score data
-                    try {
-                        System.out.println("Attempting to generate loan application result without ML data");
-                        loanApplicationResultService.generateLoanApplicationResult(appId);
-                        System.out.println("Loan application result generated successfully");
-                    } catch (Exception e) {
-                        System.out.println("Error generating loan application result: " + e.getMessage());
-                        e.printStackTrace();
-                    }
                 }
             } catch (Exception e) {
                 System.out.println("Error during ML processing: " + e.getMessage());
                 e.printStackTrace();
+            }
+            
+            // 10. ONLY if ML processing was not attempted or failed completely, use fallback
+            // This is only for cases where ML service is unavailable
+            if (!mlProcessingAttempted || (application.getStatus() == null || "SUBMITTED".equals(application.getStatus()))) {
+                System.out.println("ML processing was not attempted or failed - using fallback process");
                 
-                // Try to generate a result using just the credit score data even if ML processing failed
+                // Set to REVIEW_NEEDED to flag for manual review
+                application.setStatus("REVIEW_NEEDED");
+                application = loanAppRepo.save(application);
+                
+                // Try to generate a basic result
                 try {
-                    System.out.println("Attempting to generate loan application result after ML processing failure");
                     loanApplicationResultService.generateLoanApplicationResult(application.getId());
-                    System.out.println("Loan application result generated successfully despite ML failure");
-                } catch (Exception resultError) {
-                    System.out.println("Error generating loan application result: " + resultError.getMessage());
-                    resultError.printStackTrace();
+                    System.out.println("Generated basic result with REVIEW_NEEDED status");
+                } catch (Exception e) {
+                    System.out.println("Failed to generate basic result: " + e.getMessage());
                 }
             }
 
@@ -251,7 +310,7 @@ public class LoanApplicationService {
                                                    LoanApplicationRequest.FinancialInformation financialInfoDto) {
         // Save main financial info
         FinancialInfo financialInfo = new FinancialInfo();
-        financialInfo.setLoanApplication(application);
+        financialInfo.setLoanApplication(application); // Set the loan application
         financialInfo.setUser(application.getUser()); // Set user from the application
         financialInfo.setMonthlyIncome(financialInfoDto.getMonthlyIncome());
         financialInfo.setMonthlyExpenses(financialInfoDto.getMonthlyExpenses());
@@ -265,13 +324,28 @@ public class LoanApplicationService {
             BigDecimal utilization = financialInfoDto.getCreditTotalUsage()
                     .divide(financialInfoDto.getCurrentCreditLimit(), 4, RoundingMode.HALF_UP)
                     .multiply(BigDecimal.valueOf(100));
+            
             financialInfo.setCreditUtilization(utilization);
+            
+            // Log warning for high utilization
+            if (utilization.compareTo(BigDecimal.valueOf(100)) > 0) {
+                System.out.println("⚠️ WARNING: Credit utilization is over 100%: " + utilization + "% - this may negatively impact credit score");
+                logger.warn("Credit utilization is over 100%: {}% for application ID: {}", 
+                         utilization, application.getId());
+            }
         } else {
-            financialInfo.setCreditUtilization(BigDecimal.ZERO);
+            // If credit limit is zero, set a default high utilization value
+            System.out.println("⚠️ WARNING: Credit limit is zero, setting default utilization value");
+            logger.warn("Credit limit is zero for application ID: {}, using default utilization", application.getId());
+            financialInfo.setCreditUtilization(BigDecimal.valueOf(100)); // Use 100% as default when limit is invalid
         }
 
         // Save temporarily to get an ID for relationships
         FinancialInfo savedFinancialInfo = financialInfoRepo.save(financialInfo);
+
+        // Set the bidirectional relationship
+        application.setFinancialInfo(savedFinancialInfo);
+        application = loanAppRepo.save(application);
 
         // DEBUG: Print employment details from the DTO before saving
         List<LoanApplicationRequest.FinancialInformation.EmploymentDetail> employmentDetails = 
@@ -447,208 +521,42 @@ public class LoanApplicationService {
         }
     }
 
-    private Map<String, Object> prepareCreditData(LoanApplicationRequest request, FinancialInfo financialInfo) {
+    public Map<String, Object> prepareCreditData(LoanApplication application) {
         Map<String, Object> creditData = new HashMap<>();
         
-        // Print for debugging
-        System.out.println("Preparing credit data from financial info ID: " + 
-                          (financialInfo != null ? financialInfo.getId() : "null"));
-        
-        try {
-            // First, get loan details - no null checks needed as these come from the request
-            creditData.put("loanType", request.getLoanDetails().getProductType());
-            creditData.put("loanRequest", safeDoubleValue(request.getLoanDetails().getRequestedAmount()));
-            creditData.put("requestedAmount", safeDoubleValue(request.getLoanDetails().getRequestedAmount()));
-            creditData.put("tenure", request.getLoanDetails().getRequestedTermMonths());
-            creditData.put("requestedTermMonths", request.getLoanDetails().getRequestedTermMonths());
-            
-            // Then extract financial info with null checks
-            if (financialInfo != null) {
-                // Core financial data
-                creditData.put("monthlyIncome", safeDoubleValue(financialInfo.getMonthlyIncome()));
-                creditData.put("income", safeDoubleValue(financialInfo.getMonthlyIncome()));
-                
-                creditData.put("monthlyExpenses", safeDoubleValue(financialInfo.getMonthlyExpenses()));
-                creditData.put("expenses", safeDoubleValue(financialInfo.getMonthlyExpenses()));
-                
-                creditData.put("estimatedDebts", safeDoubleValue(financialInfo.getEstimatedDebts()));
-                creditData.put("debt", safeDoubleValue(financialInfo.getEstimatedDebts()));
-                
-                // Credit usage and limits
-                creditData.put("creditTotalUsage", safeDoubleValue(financialInfo.getCreditTotalUsage()));
-                creditData.put("usedCredit", safeDoubleValue(financialInfo.getCreditTotalUsage()));
-                
-                creditData.put("currentCreditLimit", safeDoubleValue(financialInfo.getCurrentCreditLimit()));
-                creditData.put("creditLimit", safeDoubleValue(financialInfo.getCurrentCreditLimit()));
-                
-                // Additional financial data
-                creditData.put("totalDebts", safeDoubleValue(financialInfo.getTotalDebts()));
-                creditData.put("creditUtilization", safeDoubleValue(financialInfo.getCreditUtilization()));
-                creditData.put("totalAssets", safeDoubleValue(financialInfo.getTotalAssets()));
-                creditData.put("assets", safeDoubleValue(financialInfo.getTotalAssets()));
-                
-                // Process payment history
-                String paymentHistory = analyzePaymentHistory(financialInfo.getExistingDebts());
-                creditData.put("paymentHistory", paymentHistory);
-                
-                // Calculate employment data
-                List<EmploymentHistory> employments = financialInfo.getEmploymentDetails();
-                System.out.println("DEBUG - Employment data check: financialInfo ID=" + financialInfo.getId() +
-                                 ", employments list size=" + (employments != null ? employments.size() : "null"));
-                
-                // Track if we need to fall back to request data
-                boolean useRequestData = employments == null || employments.isEmpty();
-                
-                // First try with database records if available
-                if (!useRequestData) {
-                    // Debug each employment record
-                    for (EmploymentHistory emp : employments) {
-                        System.out.println("DEBUG - Employment record: ID=" + emp.getId() +
-                                         ", Employer=" + emp.getEmployerName() +
-                                         ", Type=" + emp.getEmploymentType() +
-                                         ", Duration=" + emp.getDurationMonths() + " months" +
-                                         ", Start=" + emp.getStartDate() +
-                                         ", End=" + emp.getEndDate());
-                    }
-                
-                    // Get total employment duration
-                    int totalMonthsEmployed = employments.stream()
-                            .mapToInt(emp -> emp.getDurationMonths() != null ? emp.getDurationMonths() : 0)
-                            .sum();
-                            
-                    // If total is still 0, we'll need to fall back to request data
-                    if (totalMonthsEmployed == 0) {
-                        useRequestData = true;
-                        System.out.println("DEBUG - Zero months detected in database records, will check request data");
-                    } else {
-                        // Use the database values
-                        creditData.put("monthsEmployed", totalMonthsEmployed);
-                        
-                        // Determine current employment status
-                        String primaryEmploymentType = employments.stream()
-                                .filter(e -> e.getEndDate() == null)
-                                .findFirst()
-                                .map(EmploymentHistory::getEmploymentType)
-                                .orElse(employments.get(0).getEmploymentType());
-                        creditData.put("employmentStatus", primaryEmploymentType);
-                        
-                        // Estimate credit age based on employment duration
-                        creditData.put("creditAge", Math.max(totalMonthsEmployed, 6));
-                        
-                        // Log employment information for debugging
-                        System.out.println("Employment calculation from DB: status=" + primaryEmploymentType + 
-                                          ", totalMonths=" + totalMonthsEmployed + 
-                                          ", jobs=" + employments.size());
-                    }
-                }
-                
-                // Try to fallback to request data if needed
-                if (useRequestData && request.getFinancialInformation() != null) {
-                    System.out.println("DEBUG - Using request data for employment information");
-                    
-                    // Try to get employment duration from the request
-                    List<LoanApplicationRequest.FinancialInformation.EmploymentDetail> requestEmployments = 
-                        request.getFinancialInformation().getEmploymentDetails();
-                        
-                    if (requestEmployments != null && !requestEmployments.isEmpty()) {
-                        // Calculate from request data instead
-                        int totalMonthsEmployed = requestEmployments.stream()
-                            .mapToInt(emp -> emp.getEmploymentDurationMonths() != null ? 
-                                      emp.getEmploymentDurationMonths() : 0)
-                            .sum();
-                            
-                        // Debug each employment record from request
-                        for (int i = 0; i < requestEmployments.size(); i++) {
-                            LoanApplicationRequest.FinancialInformation.EmploymentDetail emp = requestEmployments.get(i);
-                            System.out.println("DEBUG - Request employment record #" + (i+1) + 
-                                             ": Employer=" + emp.getEmployerName() +
-                                             ", Type=" + emp.getEmploymentType() +
-                                             ", Duration=" + emp.getEmploymentDurationMonths() + " months");
-                        }
-                            
-                        System.out.println("DEBUG - Found employment data in request: " + 
-                                          totalMonthsEmployed + " months from " +
-                                          requestEmployments.size() + " jobs");
-                                          
-                        // Find the current/primary employment type
-                        String primaryEmploymentType = requestEmployments.stream()
-                            .filter(e -> e.getEndDate() == null)
-                            .findFirst()
-                            .map(LoanApplicationRequest.FinancialInformation.EmploymentDetail::getEmploymentType)
-                            .orElse(requestEmployments.get(0).getEmploymentType());
-                            
-                        // Update credit data with request values
-                        creditData.put("monthsEmployed", totalMonthsEmployed);
-                        creditData.put("employmentStatus", primaryEmploymentType);
-                        creditData.put("creditAge", Math.max(totalMonthsEmployed, 6));
-                        
-                        System.out.println("Employment calculation from request: status=" + primaryEmploymentType + 
-                                          ", totalMonths=" + totalMonthsEmployed + 
-                                          ", jobs=" + requestEmployments.size());
-                    } else {
-                        // Default values if no employment data in request either
-                        System.out.println("WARNING: No employment data found in database or request");
-                        creditData.put("monthsEmployed", 0);
-                        creditData.put("employmentStatus", "Unemployed");
-                        creditData.put("creditAge", 6); // Minimum credit age
-                    }
-                }
-                
-                // Extract debt types
-                Set<String> debtTypes = new HashSet<>();
-                List<Debt> debts = financialInfo.getExistingDebts();
-                if (debts != null && !debts.isEmpty()) {
-                    debtTypes = debts.stream()
-                            .map(Debt::getDebtType)
-                            .filter(type -> type != null && !type.isEmpty())
-                            .collect(Collectors.toSet());
-                    
-                    // If debt types are empty but debt exists, add generic type
-                    if (debtTypes.isEmpty() && safeDoubleValue(financialInfo.getEstimatedDebts()) > 0) {
-                        debtTypes.add("Personal Loan");
-                    }
-                }
-                creditData.put("debtTypes", debtTypes);
-                
-                // Bank account info
-                creditData.put("bankAccounts", financialInfo.getBankAccounts() != null ? 
-                               financialInfo.getBankAccounts() : 1);
-            } else {
-                // Provide reasonable defaults if financial info is missing
-                System.out.println("WARNING: Financial info is null, using default values");
-                creditData.put("income", 3000.0);
-                creditData.put("expenses", 1500.0);
-                creditData.put("debt", 0.0);
-                creditData.put("usedCredit", 0.0);
-                creditData.put("creditLimit", 1000.0);
-                creditData.put("paymentHistory", "On-time");
-                creditData.put("employmentStatus", "Unemployed");
-                creditData.put("monthsEmployed", 0);
-                creditData.put("creditAge", 6);
-                creditData.put("assets", 0.0);
-                creditData.put("bankAccounts", 1);
-                creditData.put("debtTypes", new HashSet<>());
-            }
-        } catch (Exception e) {
-            System.out.println("Error preparing credit data: " + e.getMessage());
-            e.printStackTrace();
-            
-            // Ensure minimum required data is present for calculation
-            if (!creditData.containsKey("loanRequest")) {
-                creditData.put("loanRequest", safeDoubleValue(request.getLoanDetails().getRequestedAmount()));
-            }
-            if (!creditData.containsKey("income")) creditData.put("income", 3000.0);
-            if (!creditData.containsKey("expenses")) creditData.put("expenses", 1500.0);
-            if (!creditData.containsKey("debt")) creditData.put("debt", 0.0);
-            if (!creditData.containsKey("usedCredit")) creditData.put("usedCredit", 0.0);
-            if (!creditData.containsKey("creditLimit")) creditData.put("creditLimit", 1000.0);
-            if (!creditData.containsKey("paymentHistory")) creditData.put("paymentHistory", "On-time");
-            if (!creditData.containsKey("employmentStatus")) creditData.put("employmentStatus", "Unemployed");
-            if (!creditData.containsKey("monthsEmployed")) creditData.put("monthsEmployed", 0);
+        FinancialInfo financialInfo = application.getFinancialInfo();
+        if (financialInfo == null) {
+            throw new ResourceNotFoundException("Financial information not found for application: " + application.getId());
         }
         
-        // Print out what we're sending to help debug
-        System.out.println("Prepared credit data: " + creditData);
+        // Add loan details
+        creditData.put("loanType", application.getProductType());
+        creditData.put("requestedAmount", application.getRequestedAmount());
+        creditData.put("requestedTerm", application.getRequestedTermMonths());
+        
+        // Add financial metrics
+        creditData.put("monthlyIncome", financialInfo.getMonthlyIncome());
+        creditData.put("monthlyExpenses", financialInfo.getMonthlyExpenses());
+        creditData.put("totalDebts", financialInfo.getEstimatedDebts());
+        creditData.put("creditUsage", financialInfo.getCreditTotalUsage());
+        creditData.put("creditLimit", financialInfo.getCurrentCreditLimit());
+        creditData.put("paymentHistory", "On-time"); // Default value
+        
+        // Add employment data from current employment
+        List<EmploymentHistory> employmentDetails = financialInfo.getEmploymentDetails();
+        if (employmentDetails != null && !employmentDetails.isEmpty()) {
+            // Get current employment (one with no end date)
+            EmploymentHistory currentEmployment = employmentDetails.stream()
+                .filter(e -> e.getEndDate() == null)
+                .findFirst()
+                .orElse(employmentDetails.get(0)); // If no current employment, use the most recent one
+            
+            creditData.put("employmentStatus", currentEmployment.getEmploymentType());
+            creditData.put("monthsEmployed", currentEmployment.getDurationMonths());
+        } else {
+            creditData.put("employmentStatus", "Unemployed");
+            creditData.put("monthsEmployed", 0);
+        }
         
         return creditData;
     }
@@ -733,27 +641,40 @@ public class LoanApplicationService {
             throw new LoanApplicationException("Application must be in SUBMITTED status for ML processing", HttpStatus.BAD_REQUEST);
         }
         
-        // Call ML service for decision
-        Map<String, Object> mlDecision = mlService.getLoanDecision(application, financialInfo, personalInfo);
-        
-        // Apply decision to application
-        application = mlService.applyMLDecision(application, mlDecision);
-        
-        // Save the updated application
-        application = loanAppRepo.save(application);
-        
-        // Generate loan application result
         try {
-            System.out.println("Generating loan application result for application ID: " + applicationId);
-            loanApplicationResultService.generateLoanApplicationResult(applicationId);
-            System.out.println("Loan application result generated successfully");
+            // 1. Get decision from ML API - this is the primary decision maker
+            Map<String, Object> mlDecision = mlService.getLoanDecision(application, financialInfo, personalInfo);
+            System.out.println("ML API response for application " + applicationId + ": " + mlDecision);
+            
+            // 2. Apply ML decision directly to the application - no overrides
+            application = mlService.applyMLDecision(application, mlDecision);
+            
+            // 3. Save the application with the ML-determined status
+            application = loanAppRepo.save(application);
+            System.out.println("Saved application " + applicationId + " with ML-determined status: " + application.getStatus());
+            
+            // 4. Return the application with ML-determined status
+            return application;
+            
         } catch (Exception e) {
-            System.out.println("Error generating loan application result: " + e.getMessage());
+            System.out.println("Exception during ML processing: " + e.getMessage());
             e.printStackTrace();
-            // Don't fail the processing if result generation fails
+            
+            // Mark as REVIEW_NEEDED on error
+            application.setStatus("REVIEW_NEEDED");
+            
+            // Record the error
+            Map<String, Object> creditEvaluationData = application.getCreditEvaluationData();
+            if (creditEvaluationData == null) {
+                creditEvaluationData = new HashMap<>();
+            }
+            creditEvaluationData.put("ml_error", "ML processing exception: " + e.getMessage());
+            application.setCreditEvaluationData(creditEvaluationData);
+            
+            // Save the application with error status
+            application = loanAppRepo.save(application);
+            return application;
         }
-        
-        return application;
     }
 
     /**
@@ -850,5 +771,21 @@ public class LoanApplicationService {
      */
     private int calculateMonthsBetween(LocalDate startDate, LocalDate endDate) {
         return (int) (startDate.until(endDate, java.time.temporal.ChronoUnit.MONTHS));
+    }
+
+    // Helper method to format a map for debugging output
+    private String mapToDebugString(Map<String, Object> map) {
+        if (map == null) return "null";
+        StringBuilder sb = new StringBuilder();
+        map.forEach((key, value) -> {
+            sb.append(key).append(": ");
+            if (value instanceof BigDecimal) {
+                sb.append(((BigDecimal) value).stripTrailingZeros().toPlainString());
+            } else {
+                sb.append(value);
+            }
+            sb.append("\n");
+        });
+        return sb.toString();
     }
 }
