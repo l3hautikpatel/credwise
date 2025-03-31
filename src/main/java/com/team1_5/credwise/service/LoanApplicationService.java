@@ -383,10 +383,16 @@ public class LoanApplicationService {
                     System.out.println("FINANCIAL DEBUG: Calculated duration from dates: " + durationMonths + " months");
                 }
                 
+                // Ensure we always have a non-null value for duration months
+                if (durationMonths == null) {
+                    durationMonths = 0;
+                }
+                
                 history.setDurationMonths(durationMonths);
                 
                 System.out.println("FINANCIAL DEBUG: Adding employment record with duration: " + 
-                    durationMonths + " months, employer: " + dto.getEmployerName());
+                    durationMonths + " months, employer: " + dto.getEmployerName() + 
+                    ", type: " + dto.getEmploymentType());
                 
                 histories.add(history);
             }
@@ -529,6 +535,22 @@ public class LoanApplicationService {
             throw new ResourceNotFoundException("Financial information not found for application: " + application.getId());
         }
         
+        // First, ensure we have the latest financial info with all related entities
+        financialInfo = financialInfoRepo.findById(financialInfo.getId()).orElse(financialInfo);
+        
+        // Check employment details are loaded - debug output
+        List<EmploymentHistory> fetchedEmployments = employmentRepo.findByFinancialInfoId(financialInfo.getId());
+        System.out.println("EMPLOYMENT DEBUG: Found " + (fetchedEmployments != null ? fetchedEmployments.size() : 0) + 
+                          " employment records for financial info ID: " + financialInfo.getId());
+        
+        // If employment details aren't loaded in the financialInfo, load them manually
+        if (financialInfo.getEmploymentDetails() == null || financialInfo.getEmploymentDetails().isEmpty()) {
+            if (fetchedEmployments != null && !fetchedEmployments.isEmpty()) {
+                System.out.println("EMPLOYMENT DEBUG: Manually setting employment details");
+                financialInfo.setEmploymentDetails(fetchedEmployments);
+            }
+        }
+        
         // Add loan details
         creditData.put("loanType", application.getProductType());
         creditData.put("requestedAmount", application.getRequestedAmount());
@@ -556,6 +578,16 @@ public class LoanApplicationService {
         // Add employment data from current employment
         List<EmploymentHistory> employmentDetails = financialInfo.getEmploymentDetails();
         if (employmentDetails != null && !employmentDetails.isEmpty()) {
+            // Debug output for all employment records
+            System.out.println("EMPLOYMENT DEBUG: Processing " + employmentDetails.size() + " employment records");
+            employmentDetails.forEach(e -> {
+                System.out.println("  - Employer: " + e.getEmployerName() + 
+                                 ", Type: " + e.getEmploymentType() + 
+                                 ", Duration: " + e.getDurationMonths() + " months" +
+                                 ", Start: " + e.getStartDate() + 
+                                 ", End: " + e.getEndDate());
+            });
+            
             // Get current employment (one with no end date) or most recent
             EmploymentHistory currentEmployment = employmentDetails.stream()
                 .filter(e -> e.getEndDate() == null)

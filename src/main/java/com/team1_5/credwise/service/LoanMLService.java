@@ -18,6 +18,7 @@ import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -213,24 +214,41 @@ public class LoanMLService {
                 List<EmploymentHistory> employments = financialInfo.getEmploymentDetails();
                 
                 if (!employments.isEmpty()) {
+                    // Debug all employment records
+                    logger.info("Found {} employment records", employments.size());
+                    for (EmploymentHistory emp : employments) {
+                        logger.info("Employment record: {} at {}, type: {}, duration: {} months", 
+                                  emp.getPosition(), emp.getEmployerName(), 
+                                  emp.getEmploymentType(), emp.getDurationMonths());
+                    }
+                    
                     // Get the most recent employment
                     Optional<EmploymentHistory> currentEmployment = employments.stream()
                             .filter(e -> e.getEndDate() == null)
                             .findFirst();
                     
-                    if (currentEmployment.isPresent()) {
-                        employmentStatus = currentEmployment.get().getEmploymentType();
-                        // Use the duration months directly from the employment history
-                        monthsEmployed = currentEmployment.get().getDurationMonths() != null ? 
-                                        currentEmployment.get().getDurationMonths() : 0;
-                    } else {
-                        employmentStatus = employments.get(0).getEmploymentType();
-                        monthsEmployed = employments.get(0).getDurationMonths() != null ? 
-                                        employments.get(0).getDurationMonths() : 0;
+                    EmploymentHistory employment = currentEmployment.orElse(employments.get(0));
+                    
+                    // Get employment type
+                    employmentStatus = employment.getEmploymentType();
+                    if (employmentStatus == null || employmentStatus.isEmpty()) {
+                        employmentStatus = "Unemployed";
+                    }
+                    
+                    // Get employment duration
+                    if (employment.getDurationMonths() != null && employment.getDurationMonths() > 0) {
+                        monthsEmployed = employment.getDurationMonths();
+                    } else if (employment.getStartDate() != null) {
+                        // Calculate from dates if duration is not directly available
+                        LocalDate endDate = employment.getEndDate() != null ? 
+                                          employment.getEndDate() : LocalDate.now();
+                        monthsEmployed = java.time.Period.between(
+                            employment.getStartDate(), endDate).getYears() * 12 + 
+                            java.time.Period.between(employment.getStartDate(), endDate).getMonths();
                     }
                     
                     // Log employment calculation for debugging
-                    logger.info("Employment status: {}, Months employed: {}", employmentStatus, monthsEmployed);
+                    logger.info("Using employment status: {}, Months employed: {}", employmentStatus, monthsEmployed);
                 }
             }
             
