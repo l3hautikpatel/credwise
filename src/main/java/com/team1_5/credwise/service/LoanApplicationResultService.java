@@ -181,7 +181,7 @@ public class LoanApplicationResultService {
                 interestRate = (String)rateObj;
             } else {
                 double rate = getDoubleValue(creditData, "interest_rate", 0.05);
-                interestRate = String.format("%.2f%%", rate * 100);
+                interestRate = String.format("%.2f%%", rate );
             }
             logger.info("Using interest rate from ML: {}", interestRate);
         } else if (creditData.containsKey("interest_rate_formatted")) {
