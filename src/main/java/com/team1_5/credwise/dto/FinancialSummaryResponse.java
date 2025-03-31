@@ -2,6 +2,7 @@ package com.team1_5.credwise.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 public class FinancialSummaryResponse {
     private BigDecimal monthlyIncome;
@@ -11,26 +12,47 @@ public class FinancialSummaryResponse {
     public static class CreditScoreDetails {
         private Integer score;
         private String range;
-        private LocalDateTime lastUpdated;
+        private String lastUpdated;
+        private Integer systemGeneratedCreditScore;
 
         // Constructor
-        public CreditScoreDetails(Integer score, String range, LocalDateTime lastUpdated) {
+        public CreditScoreDetails(Integer score, Integer systemGeneratedCreditScore, LocalDateTime lastUpdated) {
             this.score = score;
-            this.range = range;
-            this.lastUpdated = lastUpdated;
+            this.systemGeneratedCreditScore = systemGeneratedCreditScore;
+            // Format the date as a string
+            this.lastUpdated = lastUpdated != null ? 
+                lastUpdated.format(DateTimeFormatter.ISO_DATE_TIME) : null;
+            
+            // Set range based on score
+            if (score == null) {
+                this.range = "Unknown";
+            } else if (score < 560) {
+                this.range = "Poor";
+            } else if (score < 660) {
+                this.range = "Fair";
+            } else if (score < 725) {
+                this.range = "Good";
+            } else if (score < 800) {
+                this.range = "Very Good";
+            } else {
+                this.range = "Excellent";
+            }
         }
 
         // Getters
         public Integer getScore() { return score; }
         public String getRange() { return range; }
-        public LocalDateTime getLastUpdated() { return lastUpdated; }
+        public String getLastUpdated() { return lastUpdated; }
+        public Integer getSystemGeneratedCreditScore() { return systemGeneratedCreditScore; }
     }
 
     // Constructor
-    public FinancialSummaryResponse(BigDecimal monthlyIncome, BigDecimal monthlyExpenses, Integer score, String range, LocalDateTime lastUpdated) {
+    public FinancialSummaryResponse(BigDecimal monthlyIncome, BigDecimal monthlyExpenses, 
+                                   Integer score, Integer systemGeneratedCreditScore, 
+                                   LocalDateTime lastUpdated) {
         this.monthlyIncome = monthlyIncome;
         this.monthlyExpenses = monthlyExpenses;
-        this.creditScore = new CreditScoreDetails(score, range, lastUpdated);
+        this.creditScore = new CreditScoreDetails(score, systemGeneratedCreditScore, lastUpdated);
     }
 
     // Getters

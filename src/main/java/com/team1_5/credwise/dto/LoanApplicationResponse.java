@@ -4,6 +4,7 @@ public class LoanApplicationResponse {
     private String applicationId;
     private String message;
     private String status;
+    private int creditScore;
 
     // Constructor
     public LoanApplicationResponse() {}
@@ -21,4 +22,6 @@ public class LoanApplicationResponse {
     public void setMessage(String message) { this.message = message; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public int getCreditScore() { return creditScore; }
+    public void setCreditScore(int creditScore) { this.creditScore = creditScore; }
 }

@@ -6,94 +6,93 @@ import java.util.List;
 public class LoanApplicationResultResponse {
     private String status;
     private String message;
-    private Integer eligibilityScore;
-    private BigDecimal maxEligibleAmount;
-    private String suggestedInterestRate;
-    private Integer suggestedTerm;
-    private BigDecimal estimatedMonthlyPayment;
+    private EligibilityDetails eligibilityDetails;
     private List<DecisionFactorResponse> decisionFactors;
 
-    // Constructor
-    // No-arg constructor
-    public LoanApplicationResultResponse() {}
+    // Inner class for eligibility details
+    public static class EligibilityDetails {
+        private Integer eligibilityScore;
+        private ApprovedTerms approvedTerms;
 
-    public LoanApplicationResultResponse(String status, String message, Integer eligibilityScore,
-                                         BigDecimal maxEligibleAmount, String suggestedInterestRate,
-                                         Integer suggestedTerm, BigDecimal estimatedMonthlyPayment,
-                                         List<DecisionFactorResponse> decisionFactors) {
-        this.status = status;
-        this.message = message;
-        this.eligibilityScore = eligibilityScore;
-        this.maxEligibleAmount = maxEligibleAmount;
-        this.suggestedInterestRate = suggestedInterestRate;
-        this.suggestedTerm = suggestedTerm;
-        this.estimatedMonthlyPayment = estimatedMonthlyPayment;
-        this.decisionFactors = decisionFactors;
+        public EligibilityDetails() {}
+
+        public EligibilityDetails(Integer eligibilityScore, BigDecimal maxEligibleAmount,
+                                 String suggestedInterestRate, Integer suggestedTerm, 
+                                 BigDecimal estimatedMonthlyPayment) {
+            this.eligibilityScore = eligibilityScore;
+            this.approvedTerms = new ApprovedTerms(
+                maxEligibleAmount, 
+                suggestedInterestRate, 
+                suggestedTerm, 
+                estimatedMonthlyPayment
+            );
+        }
+
+        public Integer getEligibilityScore() {
+            return eligibilityScore;
+        }
+
+        public void setEligibilityScore(Integer eligibilityScore) {
+            this.eligibilityScore = eligibilityScore;
+        }
+
+        public ApprovedTerms getApprovedTerms() {
+            return approvedTerms;
+        }
+
+        public void setApprovedTerms(ApprovedTerms approvedTerms) {
+            this.approvedTerms = approvedTerms;
+        }
     }
 
-    // Getters and Setters
-    public String getStatus() {
-        return status;
-    }
+    // Inner class for approved terms
+    public static class ApprovedTerms {
+        private BigDecimal maximumEligibleAmount;
+        private String suggestedInterestRate;
+        private Integer suggestedTerm;
+        private BigDecimal estimatedMonthlyPayment;
 
-    public void setStatus(String status) {
-        this.status = status;
-    }
+        public ApprovedTerms() {}
 
-    public String getMessage() {
-        return message;
-    }
+        public ApprovedTerms(BigDecimal maximumEligibleAmount, String suggestedInterestRate,
+                           Integer suggestedTerm, BigDecimal estimatedMonthlyPayment) {
+            this.maximumEligibleAmount = maximumEligibleAmount;
+            this.suggestedInterestRate = suggestedInterestRate;
+            this.suggestedTerm = suggestedTerm;
+            this.estimatedMonthlyPayment = estimatedMonthlyPayment;
+        }
 
-    public void setMessage(String message) {
-        this.message = message;
-    }
+        public BigDecimal getMaximumEligibleAmount() {
+            return maximumEligibleAmount;
+        }
 
-    public Integer getEligibilityScore() {
-        return eligibilityScore;
-    }
+        public void setMaximumEligibleAmount(BigDecimal maximumEligibleAmount) {
+            this.maximumEligibleAmount = maximumEligibleAmount;
+        }
 
-    public void setEligibilityScore(Integer eligibilityScore) {
-        this.eligibilityScore = eligibilityScore;
-    }
+        public String getSuggestedInterestRate() {
+            return suggestedInterestRate;
+        }
 
-    public BigDecimal getMaxEligibleAmount() {
-        return maxEligibleAmount;
-    }
+        public void setSuggestedInterestRate(String suggestedInterestRate) {
+            this.suggestedInterestRate = suggestedInterestRate;
+        }
 
-    public void setMaxEligibleAmount(BigDecimal maxEligibleAmount) {
-        this.maxEligibleAmount = maxEligibleAmount;
-    }
+        public Integer getSuggestedTerm() {
+            return suggestedTerm;
+        }
 
-    public String getSuggestedInterestRate() {
-        return suggestedInterestRate;
-    }
+        public void setSuggestedTerm(Integer suggestedTerm) {
+            this.suggestedTerm = suggestedTerm;
+        }
 
-    public void setSuggestedInterestRate(String suggestedInterestRate) {
-        this.suggestedInterestRate = suggestedInterestRate;
-    }
+        public BigDecimal getEstimatedMonthlyPayment() {
+            return estimatedMonthlyPayment;
+        }
 
-    public Integer getSuggestedTerm() {
-        return suggestedTerm;
-    }
-
-    public void setSuggestedTerm(Integer suggestedTerm) {
-        this.suggestedTerm = suggestedTerm;
-    }
-
-    public BigDecimal getEstimatedMonthlyPayment() {
-        return estimatedMonthlyPayment;
-    }
-
-    public void setEstimatedMonthlyPayment(BigDecimal estimatedMonthlyPayment) {
-        this.estimatedMonthlyPayment = estimatedMonthlyPayment;
-    }
-
-    public List<DecisionFactorResponse> getDecisionFactors() {
-        return decisionFactors;
-    }
-
-    public void setDecisionFactors(List<DecisionFactorResponse> decisionFactors) {
-        this.decisionFactors = decisionFactors;
+        public void setEstimatedMonthlyPayment(BigDecimal estimatedMonthlyPayment) {
+            this.estimatedMonthlyPayment = estimatedMonthlyPayment;
+        }
     }
 
     // Inner class DecisionFactorResponse
@@ -102,17 +101,14 @@ public class LoanApplicationResultResponse {
         private String impact;
         private String description;
 
+        public DecisionFactorResponse() {}
 
-        public  DecisionFactorResponse() {} ;
-
-        // Constructor
         public DecisionFactorResponse(String factor, String impact, String description) {
             this.factor = factor;
             this.impact = impact;
             this.description = description;
         }
 
-        // Getters and Setters
         public String getFactor() {
             return factor;
         }
@@ -136,5 +132,58 @@ public class LoanApplicationResultResponse {
         public void setDescription(String description) {
             this.description = description;
         }
+    }
+
+    // No-arg constructor
+    public LoanApplicationResultResponse() {}
+
+    // Constructor
+    public LoanApplicationResultResponse(String status, String message, Integer eligibilityScore,
+                                       BigDecimal maxEligibleAmount, String suggestedInterestRate,
+                                       Integer suggestedTerm, BigDecimal estimatedMonthlyPayment,
+                                       List<DecisionFactorResponse> decisionFactors) {
+        this.status = status;
+        this.message = message;
+        this.eligibilityDetails = new EligibilityDetails(
+            eligibilityScore, 
+            maxEligibleAmount, 
+            suggestedInterestRate, 
+            suggestedTerm, 
+            estimatedMonthlyPayment
+        );
+        this.decisionFactors = decisionFactors;
+    }
+
+    // Getters and Setters
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
+    public EligibilityDetails getEligibilityDetails() {
+        return eligibilityDetails;
+    }
+
+    public void setEligibilityDetails(EligibilityDetails eligibilityDetails) {
+        this.eligibilityDetails = eligibilityDetails;
+    }
+
+    public List<DecisionFactorResponse> getDecisionFactors() {
+        return decisionFactors;
+    }
+
+    public void setDecisionFactors(List<DecisionFactorResponse> decisionFactors) {
+        this.decisionFactors = decisionFactors;
     }
 }
